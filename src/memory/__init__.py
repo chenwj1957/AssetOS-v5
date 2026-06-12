@@ -1,0 +1,2 @@
+"""Asset memory retrieval."""
+

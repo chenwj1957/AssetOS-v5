@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+data/
+!data/
+data/*
+!data/memory_template/
+data/memory_template/*
+!data/memory_template/asset/
+data/memory_template/asset/*
+!data/memory_template/asset/default/
+!data/memory_template/asset/default/**
+.tests/
+test/
+

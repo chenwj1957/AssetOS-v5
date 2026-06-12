@@ -1,0 +1,17 @@
+[project]
+name = "assetos-agent"
+version = "0.2.0"
+description = "AssetOS agentic property intelligence system"
+requires-python = ">=3.11"
+dependencies = [
+  "requests>=2.31.0",
+  "python-docx>=1.1.2",
+]
+
+[project.optional-dependencies]
+search = ["tavily-python>=0.5.0"]
+test = ["pytest>=8.0.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

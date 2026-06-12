@@ -1,0 +1,35 @@
+{
+  "invoice_no": "INV-2026-001",
+  "invoice_date": "31.05.2026",
+  "due_date": "14.06.2026",
+  "billing_period": "June 2026",
+  "property_name": "Example Property",
+  "property_address": "1 Example Street, Sydney NSW 2000",
+  "bill_to": "Example Customer Pty Ltd\nPO Box 000\nSydney NSW 2000",
+  "items": [
+    {
+      "description": "Monthly rent for June 2026",
+      "amount": 500.0
+    }
+  ],
+  "subtotal": 500.0,
+  "gst": 50.0,
+  "total": 550.0,
+  "payment_terms": "14 days",
+  "assumptions": "To be confirmed.",
+  "business_profile": {
+    "business_name": "Example Property Pty Ltd",
+    "trading_name": "Example Property",
+    "abn": "12 345 678 901",
+    "contact": {
+      "email": "accounts@example.com",
+      "phone": "02 0000 0000"
+    },
+    "payment": {
+      "method": "direct_credit",
+      "account_name": "Example Property Pty Ltd",
+      "bsb": "000-000",
+      "account_number": "123456789"
+    }
+  }
+}

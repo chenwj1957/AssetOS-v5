@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AssetOS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Spline+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="wordmark">AssetOS</div>
+  <div class="wordmark-sub">Property intelligence</div>
+
+  <nav class="nav" aria-label="Primary">
+    <a href="#assistant" class="nav-item" data-view="assistant">Assistant</a>
+    <a href="#assets" class="nav-item" data-view="assets">Assets</a>
+    <a href="#workflows" class="nav-item" data-view="workflows">Workflows</a>
+    <a href="#runs" class="nav-item" data-view="runs">Runs</a>
+  </nav>
+
+  <div class="sidebar-foot">
+    <label class="gate-toggle">
+      <input type="checkbox" id="gate-switch" />
+      <span class="gate-track" aria-hidden="true"></span>
+      <span class="gate-label">Allow gated tools</span>
+    </label>
+    <p class="gate-hint">Off: the agent drafts and recommends. On: delegated computer-use tools may act.</p>
+  </div>
+</aside>
+
+<main class="main">
+
+  <!-- Assistant -->
+  <section class="view" id="view-assistant">
+    <div class="chat-scroll" id="chat-scroll">
+      <div class="chat-column" id="chat-column">
+        <div class="chat-empty" id="chat-empty">
+          <h1 class="view-title">Ask about the portfolio</h1>
+          <p>Memory-grounded answers, web research when facts are missing, drafted artifacts when you need documents. Every run is journaled.</p>
+        </div>
+      </div>
+    </div>
+    <form class="composer" id="composer">
+      <textarea id="composer-input" rows="1" placeholder="e.g. How has the rent moved at 12 Ocean St?" aria-label="Message the agent"></textarea>
+      <button type="submit" id="composer-send">Send</button>
+    </form>
+  </section>
+
+  <!-- Assets -->
+  <section class="view" id="view-assets" hidden>
+    <div class="page-column">
+      <h1 class="view-title">Asset vault</h1>
+      <div id="assets-list" class="asset-grid"></div>
+      <div id="asset-detail" hidden></div>
+    </div>
+  </section>
+
+  <!-- Workflows -->
+  <section class="view" id="view-workflows" hidden>
+    <div class="page-column">
+      <h1 class="view-title">Workflows</h1>
+      <p class="view-lede">Saved instructions for the assistant. Run one as-is, or edit the text before sending.</p>
+      <div id="workflows-list" class="workflow-list"></div>
+      <form id="workflow-form" class="workflow-form">
+        <input type="text" id="workflow-name" placeholder="Workflow name" aria-label="Workflow name" required />
+        <textarea id="workflow-task" rows="2" placeholder="Instructions for the agent. Use {asset} as a placeholder." aria-label="Workflow instructions" required></textarea>
+        <button type="submit">Save workflow</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Runs -->
+  <section class="view" id="view-runs" hidden>
+    <div class="page-column">
+      <h1 class="view-title">Run journal</h1>
+      <p class="view-lede">Every run — interactive or scheduled — leaves an auditable record.</p>
+      <div id="runs-list" class="runs-list"></div>
+      <div id="run-detail" hidden></div>
+    </div>
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
