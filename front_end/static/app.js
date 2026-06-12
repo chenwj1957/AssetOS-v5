@@ -50,6 +50,10 @@ const chatScroll = document.getElementById("chat-scroll");
 const composer = document.getElementById("composer");
 const composerInput = document.getElementById("composer-input");
 const composerSend = document.getElementById("composer-send");
+const composerAttach = document.getElementById("composer-attach");
+const composerAssetSelect = document.getElementById("composer-asset");
+const composerFileInput = document.getElementById("composer-file-input");
+const attachmentsBar = document.getElementById("attachments");
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -62,12 +66,115 @@ function scrollToBottom() {
   chatScroll.scrollTop = chatScroll.scrollHeight;
 }
 
+/* ------------------------------------------------------------------ */
+/* Attachments: upload files and tag them to an asset                 */
+/* ------------------------------------------------------------------ */
+
+let pendingAttachments = [];
+
+async function loadAssetOptions() {
+  try {
+    const response = await fetch("/api/assets");
+    const { assets } = await response.json();
+    const current = composerAssetSelect.value;
+    const noAssetOption = el("option", "", "No asset");
+    noAssetOption.value = "";
+    composerAssetSelect.replaceChildren(noAssetOption);
+    for (const asset of assets) {
+      const option = el("option", "", asset.id);
+      option.value = asset.id;
+      composerAssetSelect.appendChild(option);
+    }
+    composerAssetSelect.value = current;
+  } catch (error) {
+    // Asset list is a convenience; ignore failures here.
+  }
+}
+
+function renderAttachments() {
+  attachmentsBar.replaceChildren();
+  attachmentsBar.hidden = pendingAttachments.length === 0;
+  for (const attachment of pendingAttachments) {
+    const chip = el("span", "attachment-chip");
+    if (attachment.status === "uploading") chip.classList.add("attachment-uploading");
+    if (attachment.status === "error") chip.classList.add("attachment-error");
+    chip.appendChild(el("span", "", attachment.name));
+    if (attachment.assetId) {
+      chip.appendChild(el("span", "attachment-asset", attachment.assetId));
+    }
+    if (attachment.status === "uploading") {
+      chip.appendChild(el("span", "", "uploading…"));
+    } else if (attachment.status === "error") {
+      chip.appendChild(el("span", "", "failed"));
+    }
+    const remove = el("button", "attachment-remove", "×");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Remove ${attachment.name}`);
+    remove.addEventListener("click", () => {
+      pendingAttachments = pendingAttachments.filter((a) => a !== attachment);
+      renderAttachments();
+    });
+    chip.appendChild(remove);
+    attachmentsBar.appendChild(chip);
+  }
+}
+
+async function uploadFile(file, assetId) {
+  const attachment = { name: file.name, assetId, status: "uploading" };
+  pendingAttachments.push(attachment);
+  renderAttachments();
+
+  const formData = new FormData();
+  formData.append("file", file);
+  if (assetId) formData.append("asset_id", assetId);
+
+  try {
+    const response = await fetch("/api/uploads", { method: "POST", body: formData });
+    if (!response.ok) throw new Error(`Upload failed (${response.status}).`);
+    const payload = await response.json();
+    attachment.name = payload.name;
+    attachment.assetId = payload.asset_id || "";
+    attachment.status = "done";
+  } catch (error) {
+    attachment.status = "error";
+  }
+  renderAttachments();
+}
+
+composerAttach.addEventListener("click", () => composerFileInput.click());
+
+composerFileInput.addEventListener("change", () => {
+  const assetId = composerAssetSelect.value;
+  for (const file of composerFileInput.files) {
+    uploadFile(file, assetId);
+  }
+  composerFileInput.value = "";
+});
+
 async function sendMessage(message) {
   const empty = document.getElementById("chat-empty");
   if (empty) empty.remove();
 
+  const attachments = pendingAttachments.filter((a) => a.status === "done");
+  let outgoingMessage = message;
+  if (attachments.length) {
+    const note = attachments
+      .map((a) => (a.assetId ? `${a.name} (asset: ${a.assetId})` : a.name))
+      .join(", ");
+    outgoingMessage = `${message}\n\n[Attached file(s): ${note}]`;
+  }
+  pendingAttachments = [];
+  renderAttachments();
+
   const userMsg = el("div", "msg msg-user");
   userMsg.appendChild(el("div", "msg-body", message));
+  if (attachments.length) {
+    const chips = el("div", "msg-attachments");
+    for (const a of attachments) {
+      chips.appendChild(el("span", "msg-attachment-chip", a.assetId ? `${a.name} → ${a.assetId}` : a.name));
+    }
+    userMsg.appendChild(chips);
+  }
   chatColumn.appendChild(userMsg);
 
   const agentMsg = el("div", "msg msg-agent");
@@ -92,7 +199,7 @@ async function sendMessage(message) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message: outgoingMessage }),
     });
     if (!response.ok || !response.body) {
       throw new Error(`Request failed (${response.status}).`);
@@ -341,4 +448,5 @@ async function loadRuns() {
 /* ------------------------------------------------------------------ */
 
 initGate();
+loadAssetOptions();
 showView(location.hash.slice(1) || "assistant");

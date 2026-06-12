@@ -74,10 +74,12 @@ class AdapterCodex:
         web search/fetch) inside its sandbox. AssetOS treats the whole
         run as a single tool observation.
         """
-        args = ["exec", "--skip-git-repo-check", "--sandbox", sandbox]
+        # `--search` is a global flag and must precede the `exec` subcommand.
+        args = []
         if enable_search:
             # `--search` enables Codex's built-in web search/browsing tool.
             args.append("--search")
+        args.extend(["exec", "--skip-git-repo-check", "--sandbox", sandbox])
         if working_dir:
             args.extend(["--cd", working_dir])
         args.append("-")

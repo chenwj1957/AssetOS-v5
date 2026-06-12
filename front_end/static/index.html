@@ -44,7 +44,13 @@
         </div>
       </div>
     </div>
+    <div class="attachments" id="attachments" hidden></div>
     <form class="composer" id="composer">
+      <input type="file" id="composer-file-input" multiple hidden />
+      <button type="button" id="composer-attach" class="composer-icon-btn" title="Attach files" aria-label="Attach files">+</button>
+      <select id="composer-asset" class="composer-asset" aria-label="Tag attachments to an asset">
+        <option value="">No asset</option>
+      </select>
       <textarea id="composer-input" rows="1" placeholder="e.g. How has the rent moved at 12 Ocean St?" aria-label="Message the agent"></textarea>
       <button type="submit" id="composer-send">Send</button>
     </form>

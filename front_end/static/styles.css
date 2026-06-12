@@ -192,6 +192,78 @@ input:focus-visible, textarea:focus-visible {
 .composer button:hover, .workflow-form button:hover, .wf-run:hover { background: var(--brass-deep); }
 .composer button:disabled { background: var(--line); cursor: default; }
 
+.composer-icon-btn {
+  flex: 0 0 auto;
+  width: 44px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+.composer-asset {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 12.5px;
+  max-width: 160px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--ink-soft);
+}
+
+/* ---------- Attachments ---------- */
+.attachments {
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.attachments[hidden] { display: none; }
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 5px 6px 5px 10px;
+}
+.attachment-chip .attachment-asset { color: var(--brass-deep); }
+.attachment-chip .attachment-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-soft);
+  font: inherit;
+  line-height: 1;
+  padding: 0 4px;
+}
+.attachment-chip .attachment-remove:hover { color: var(--stale); }
+.attachment-chip.attachment-uploading { color: var(--ink-soft); border-style: dashed; }
+.attachment-chip.attachment-error { border-color: var(--stale); color: var(--stale); }
+
+.msg-attachments {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.msg-attachment-chip {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: var(--ink-soft);
+}
+
 /* ---------- Assets ---------- */
 .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
 .asset-card {

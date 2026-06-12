@@ -39,7 +39,9 @@ class MemoryIndex:
         self.asset_registry = asset_registry
         self.global_runs_dir = global_runs_dir
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self.db_path)
+        # The connection is created once at startup but used from per-request
+        # worker threads (serialized by the caller, e.g. the chat lock).
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._fts_available = self._init_schema()
 
     def close(self) -> None:

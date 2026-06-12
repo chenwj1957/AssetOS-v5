@@ -11,10 +11,11 @@ from __future__ import annotations
 import json
 import queue
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -75,8 +76,11 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
 
     registry = agent_loop._wiring["asset_registry"]
     file_registry = agent_loop._wiring["file_registry"]
+    file_writer = agent_loop._wiring["file_writer"]
     fact_store = agent_loop._wiring["fact_store"]
     schema_store = agent_loop._wiring["schema_store"]
+
+    uploads_dir = settings.dir_data / "memory" / "uploads"
 
     # ------------------------------------------------------------------
     # Chat (SSE: live ledger of agent activity, then the final answer)
@@ -132,6 +136,35 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
                 yield f"data: {json.dumps(item)}\n\n"
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    # ------------------------------------------------------------------
+    # Uploads: attach a file to the conversation, optionally tagged to an asset
+    # ------------------------------------------------------------------
+
+    @app.post("/api/uploads")
+    async def upload_file(file: UploadFile = File(...), asset_id: str = Form("")) -> JSONResponse:
+        asset_id = asset_id.strip()
+        if asset_id and asset_id not in registry.list_asset_ids():
+            raise HTTPException(status_code=404, detail=f"No asset '{asset_id}'.")
+
+        filename = Path(file.filename or "upload").name
+        content = await file.read()
+
+        if asset_id:
+            try:
+                file_writer.write_bytes(asset_id, f"Files/{filename}", content)
+            except UnsafeMemoryPathError:
+                filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{filename}"
+                file_writer.write_bytes(asset_id, f"Files/{filename}", content)
+        else:
+            uploads_dir.mkdir(parents=True, exist_ok=True)
+            path = uploads_dir / filename
+            if path.exists():
+                filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{filename}"
+                path = uploads_dir / filename
+            path.write_bytes(content)
+
+        return JSONResponse({"name": filename, "asset_id": asset_id})
 
     # ------------------------------------------------------------------
     # Vault: assets, facts, files, artifacts

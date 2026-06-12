@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,6 +49,13 @@ def load_settings(project_root: Path | None = None) -> Settings:
     if not dir_data.is_absolute():
         dir_data = root / dir_data
 
+    codex_agent_sandbox = os.environ.get("CODEX_AGENT_SANDBOX")
+    if not codex_agent_sandbox:
+        # Codex CLI's `workspace-write` sandbox relies on CreateProcessWithLogonW
+        # on Windows, which fails (error 1326) on accounts without the
+        # required logon privileges. Fall back to no sandboxing there.
+        codex_agent_sandbox = "danger-full-access" if sys.platform == "win32" else DEFAULT_CODEX_AGENT_SANDBOX
+
     return Settings(
         project_root=root,
         dir_data=dir_data,
@@ -55,4 +64,5 @@ def load_settings(project_root: Path | None = None) -> Settings:
         ollama_url=DEFAULT_OLLAMA_URL.rstrip("/"),
         ollama_model=DEFAULT_OLLAMA_MODEL,
         codex_model=DEFAULT_CODEX_MODEL,
+        codex_agent_sandbox=codex_agent_sandbox,
     )
