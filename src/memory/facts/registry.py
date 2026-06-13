@@ -30,7 +30,14 @@ class SchemaError(ValueError):
 
 
 @dataclass
-class SchemaStore:
+class SchemaRegistry:
+    """Registry of fact schema fields: what fields exist, their types, and
+    their lifecycle (active / deprecated).
+
+    Markdown remains the canonical source of truth; the schema is a living
+    index of which fields the fact layer (see ``reader``/``writer``) tracks.
+    """
+
     path: Path
 
     def load(self) -> dict[str, Any]:

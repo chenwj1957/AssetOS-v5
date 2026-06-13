@@ -1,4 +1,5 @@
-from src.memory.facts.fact_store import FactStore
-from src.memory.facts.schema_store import SchemaError, SchemaStore
+from src.memory.facts.reader import FactReader
+from src.memory.facts.registry import SchemaError, SchemaRegistry
+from src.memory.facts.writer import FactWriter
 
-__all__ = ["FactStore", "SchemaError", "SchemaStore"]
+__all__ = ["FactReader", "FactWriter", "SchemaError", "SchemaRegistry"]

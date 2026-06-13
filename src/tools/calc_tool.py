@@ -4,7 +4,7 @@ import ast
 import operator
 from typing import Any
 
-from src.tools.base import ToolContext, ToolResult, ToolSpec, require_str
+from src.tools.base import ToolContext, ToolResult, ToolSpec, catches, require_str
 
 # Deterministic arithmetic for ledger math (GST, arrears, totals, pro-rata).
 # AST-walk evaluator: numbers, + - * / // % **, parentheses, and a small set
@@ -50,12 +50,10 @@ def _walk(node: ast.AST) -> float | int:
     raise ValueError(f"Disallowed syntax: {type(node).__name__}.")
 
 
+@catches(ValueError, ZeroDivisionError, OverflowError)
 def _calculate(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     expression = require_str(args, "expression")
-    try:
-        result = evaluate_expression(expression)
-    except (ValueError, ZeroDivisionError, OverflowError) as exc:
-        return ToolResult(observation=f"ERROR: {exc}")
+    result = evaluate_expression(expression)
     return ToolResult(observation=f"{expression} = {result}")
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from src.core.text import trim_to_budget
 from src.core.types import AgentState
 from src.tools.base import ToolSpec
 
@@ -43,13 +44,6 @@ def render_transcript(state: AgentState, transcript_max_chars: int) -> str:
             f"action: {turn.tool}({turn.args})\n"
             f"observation:\n{turn.observation}"
         )
-    kept: list[str] = []
-    used = len(header)
-    for block in reversed(blocks):
-        if used + len(block) > transcript_max_chars and kept:
-            kept.append("[earlier turns trimmed]")
-            break
-        kept.append(block)
-        used += len(block)
-    body = "\n\n".join(reversed(kept))
+    kept = trim_to_budget(blocks, transcript_max_chars, "[earlier turns trimmed]", used=len(header))
+    body = "\n\n".join(kept)
     return f"{header}\n{body}\n\nRespond with the next JSON object."

@@ -1,0 +1,795 @@
+AssetOS v5.5 - System Structure and Component Guide
+==================================================
+
+1. SYSTEM PURPOSE
+-----------------
+
+AssetOS is a local, agent-driven property intelligence system. It combines:
+
+- property and portfolio memory stored as files;
+- a searchable, structured fact projection derived from that memory;
+- an observe-think-act agent loop controlled by Codex;
+- registered tools for memory, research, arithmetic, and document creation;
+- persistent conversation summaries and run journals;
+- interactive CLI, unattended scheduler, and browser-based workbench entry points;
+- deterministic Python validation and rendering around LLM-generated content.
+
+The central design rule is that the language model decides what action to take,
+but Python owns access control, path safety, validation, persistence, arithmetic,
+and document rendering. Markdown files remain the canonical property record.
+Structured facts, search indexes, transcripts, and generated artifacts are
+projections or outputs built around that source material.
+
+
+2. TOP-LEVEL PROJECT LAYOUT
+---------------------------
+
+AssetOS-v5.5/
+|-- README.md                    Project overview, operation, and version history
+|-- ASSETOS_STRUCTURE.txt        This detailed architecture guide
+|-- pyproject.toml               Python metadata, dependencies, and pytest config
+|-- requirements.txt             Core runtime dependencies
+|-- data/                        Runtime data and the new-asset template
+|-- front_end/                   Independent FastAPI and browser UI module
+|-- src/                         Core application packages
+|-- tests/                       Main automated test suite
+`-- .gitignore                   Excludes runtime data, caches, and virtual envs
+
+The core application only depends inward on src/. The front_end/ package imports
+the core, but src/ never imports front_end/. This keeps the CLI, scheduler, and
+agent usable if the web interface is removed.
+
+
+3. HIGH-LEVEL RUNTIME ARCHITECTURE
+----------------------------------
+
+The normal request path is:
+
+User or scheduled task
+  -> CLI, web API, scheduler, or direct Python call
+  -> Session.ask() when conversational continuity is needed
+  -> AgentLoop.run(task, session_context)
+  -> Codex controller returns one JSON decision
+  -> AgentLoop validates the decision
+  -> selected ToolSpec executes with a ToolContext
+  -> ToolResult becomes the next observation
+  -> loop repeats until final_answer or the iteration limit
+  -> deterministic run journal is written
+  -> answer, trace, and artifacts are returned to the caller
+
+The controller does not directly read files, browse, calculate, or write output.
+It requests named tools. The tool registry is therefore the boundary between
+model reasoning and application capabilities.
+
+
+4. CORE PACKAGE: src/core/
+--------------------------
+
+src/core/config.py
+  Defines the immutable Settings object and load_settings(). Settings supplies:
+  project root; data, skill, and asset paths; Ollama endpoint/model; Codex model;
+  memory file limits; context limits; loop limits; and Codex delegation settings.
+
+  On Windows, delegated Codex work defaults to danger-full-access when no
+  CODEX_AGENT_SANDBOX environment variable is provided. This works around the
+  Windows CreateProcessWithLogonW failure seen with workspace-write. Other
+  platforms retain the workspace-write default.
+
+src/core/constants.py
+  Holds system defaults:
+  - data location: data/
+  - assets: data/memory/assets/
+  - skills: data/memory/skills/
+  - Ollama URL/model and Codex model
+  - 12 agent iterations
+  - 12,000-character observations
+  - 60,000-character transcripts
+  - memory file size/count limits
+  - allowed readable memory extensions: .md and .txt
+  - delegated Codex timeout and sandbox
+
+src/core/types.py
+  Defines shared data contracts:
+  - Skill: skill name, path, content, and summary
+  - File: asset id, logical file name, path, summary, and content
+  - ArtifactResult: output type, file path, and optional metadata path
+  - EventLog: timestamped runtime activity
+  - AgentTurn: one thought, action, arguments, and observation
+  - AgentState: all mutable state for one run
+
+  AgentState is the cross-turn scratchpad. It tracks the current asset, the most
+  recent structured result, generated artifacts, turns, answer, and journal path.
+
+src/core/errors.py
+  Defines the application error hierarchy. Important types are:
+  PMIntelligenceError, RoutingError, MemoryNotFoundError,
+  UnsafeMemoryPathError, SkillNotFoundError, LLMProviderError, and
+  ConfigurationError.
+
+src/core/text.py
+  Provides bounded-text helpers. truncate_text() limits one observation.
+  trim_to_budget() retains the newest transcript or session blocks within a
+  character budget, inserting a marker when older blocks are discarded.
+
+
+5. AGENT ORCHESTRATION: src/agent/
+----------------------------------
+
+src/agent/loop.py - AgentLoop
+
+AgentLoop is the composition root and central runtime controller. Its constructor
+creates or accepts the LLM client, tool list, event emitter, and approval policy.
+It also wires the complete memory subsystem into one MemoryHub:
+
+- AssetRegistry and AssetWriter
+- FileRegistry, FileReader, and FileWriter
+- SkillRegistry and SkillReader
+- SchemaRegistry, FactReader, and FactWriter
+- MemoryIndex
+
+run() creates an AgentState and ToolContext, builds the controller prompt, and
+performs at most 12 observe-think-act turns. Each Codex response must be one JSON
+object containing either:
+
+  {"thought": "...", "action": {"tool": "...", "args": {...}}}
+
+or:
+
+  {"thought": "...", "final_answer": "..."}
+
+Unknown tools, bad arguments, denied approvals, and supported runtime failures
+become observations. This lets the model adapt on its next turn rather than
+crashing the whole run. Malformed controller JSON receives one corrective
+reprompt. Tool observations are truncated before being returned to the model.
+
+When a ToolResult contains structured data, it is saved as
+state.last_structured_result. When it contains an artifact, the artifact is
+appended to state.artifacts. This is how generate_invoice passes validated JSON
+to build_docx without exposing an unvalidated intermediate file.
+
+The default approval policy denies every gated tool. Interactive entry points
+must explicitly replace that policy if they want to permit gated actions.
+
+src/agent/prompt.py
+  Builds the system prompt and renders the run transcript. The prompt includes
+  the live tool catalog generated from ToolSpec objects, output format rules,
+  memory grounding requirements, fact freshness rules, arithmetic requirements,
+  research guidance, untrusted-content warnings, approval behavior, error
+  recovery guidance, and iteration limits.
+
+  render_transcript() combines the user task, optional session context, and
+  previous turns. Old turns are trimmed first when the transcript exceeds its
+  configured budget.
+
+src/agent/session.py - Session
+  Provides the perpetual conversational layer around separate AgentLoop runs.
+  Each question starts a fresh inner loop. Session retains compact Q/A summaries
+  plus the last selected asset, capped at 4,000 characters. Long-term knowledge
+  is not kept in an ever-growing prompt; it is persisted in memory and journals.
+
+src/agent/journal.py
+  Mechanically writes a markdown record after every meaningful run. A journal
+  contains task, active asset, tools used, observation excerpts, artifacts,
+  memory-writing warnings, and the answer excerpt. No LLM is involved.
+
+  Asset-scoped journals:
+    data/memory/assets/<asset_id>/runs/<timestamp>_run.md
+
+  Asset-less journals:
+    data/memory/runs/<timestamp>_run.md
+
+  Journaling is best-effort and cannot fail an otherwise successful run.
+
+src/agent/scheduler.py
+  Implements recurring tasks without a cron dependency. Supported schedules are:
+  interval in minutes, daily at HH:MM, and weekly on a weekday at HH:MM.
+
+  Scheduler reads task definitions, checks whether each is due, records an
+  attempt before execution to prevent crash loops, runs due tasks through the
+  same AgentLoop, and persists last-run state. Since unattended loops use the
+  default approval policy, gated tools are denied. Scheduled work is journaled
+  like interactive work.
+
+
+6. TOOL FRAMEWORK: src/tools/
+------------------------------
+
+src/tools/base.py defines the capability contracts:
+
+- MemoryHub: all memory services available to tools
+- ToolContext: Settings + LLMClient + MemoryHub + current AgentState
+- ToolResult: observation + optional artifact + optional structured data
+- ToolSpec: name, description, argument descriptions, implementation, and
+  requires_approval flag
+- require_str(): common non-empty string argument validation
+- catches(): converts selected exceptions into ERROR observations
+
+src/tools/registry.py assembles all capabilities in this order:
+
+  memory tools -> fact tools -> calculator -> research tools -> artifact tools
+
+The complete registered tool catalog is listed below.
+
+Memory tools - src/tools/memory_tools.py
+
+1. list_assets
+   Lists asset ids, profile excerpts, and readable memory file names.
+
+2. read_memory
+   Reads selected .md/.txt files through FileReader and marks the asset active.
+   Returned content is explicitly framed as untrusted data.
+
+3. create_asset
+   Creates an asset folder from the default template and writes profile.md.
+
+4. save_memory_note
+   Saves a timestamped markdown note under an asset for future retrieval.
+
+5. list_skills
+   Lists reusable skill directories and their summaries.
+
+6. load_skill
+   Loads skill.md as reference material, explicitly below system instructions.
+
+Fact and search tools - src/tools/fact_tools.py
+
+7. view_schema
+   Renders the active structured-fact schema.
+
+8. evolve_schema
+   Applies validated schema operations: add, deprecate, or update description.
+
+9. extract_facts
+   Loads up to the configured memory-file limit, asks Codex for typed fact JSON,
+   validates and stores supported values, and reports rejected or unschematized
+   candidates. It also marks the asset active.
+
+10. search_memory
+    Refreshes and queries the SQLite text index across all assets or one asset.
+
+11. fact_history
+    Reads value changes for one field from the append-only fact ledger.
+
+12. query_facts
+    Renders current facts with source provenance, deprecated-field notices, and
+    STALE warnings when source content has changed.
+
+Arithmetic tool - src/tools/calc_tool.py
+
+13. calculate
+    Evaluates a restricted Python expression AST. It supports numeric literals,
+    arithmetic operators, parentheses, and round/min/max/abs/sum. Names,
+    attributes, imports, arbitrary calls, and eval are prohibited. The prompt
+    requires this tool for financial arithmetic.
+
+Research tools - src/tools/research_tools.py
+
+14. web_search
+    Uses Tavily when TAVILY_API_KEY and tavily-python are available. Otherwise it
+    delegates a search task to Codex with web search enabled.
+
+15. fetch_url
+    Fetches HTTP(S) content with requests. HTML is reduced to visible text by a
+    small HTMLParser that skips script, style, navigation, footer, and similar
+    elements. Output is capped and framed as untrusted web content.
+
+16. browse_web
+    Delegates multi-page research to Codex in a read-only sandbox with search.
+
+17. codex_agent
+    Delegates open-ended computer work to Codex. If an asset is active, its asset
+    folder becomes the working directory. This tool is approval-gated because it
+    can perform file work and broader computer-use actions.
+
+Artifact tools - src/tools/artifact_tools.py
+
+18. generate_invoice
+    Gives gathered context to Codex and requires a fixed invoice JSON structure.
+    Python validates the result, retries once with validation feedback if needed,
+    then stores the validated invoice in AgentState.
+
+19. build_docx
+    Requires a previous generate_invoice result and an active asset. It renders
+    the invoice into the asset's Artifact directory and records source files used
+    during read_memory calls.
+
+
+7. MEMORY SYSTEM: src/memory/
+-----------------------------
+
+The memory system separates registries, readers, and writers. Registries locate
+and enumerate data; readers enforce read rules; writers enforce creation rules.
+
+src/memory/paths.py
+  resolve_within() is the common path-safety primitive. It rejects absolute
+  paths, parent-directory references, and resolved/symlink paths that escape the
+  allowed root.
+
+Assets - src/memory/assets/
+
+AssetRegistry:
+- lists asset directory names;
+- resolves the directory for an asset id;
+- reads profile.md files for summaries.
+
+AssetWriter:
+- converts names to safe underscore-separated ids;
+- rejects existing/escaping asset paths;
+- copies data/memory_template/asset/default/ when available;
+- otherwise creates Files/ and Artifact/ directories;
+- writes the supplied or default profile.md.
+
+Files - src/memory/files/
+
+FileRegistry:
+- recursively lists .md and .txt files under an asset;
+- loads optional <filename>.meta.json summaries;
+- resolves caller-supplied paths through resolve_within().
+
+FileReader:
+- checks existence and file type;
+- enforces the per-file byte limit;
+- enforces the maximum number of files read at once;
+- returns typed File objects with content and summaries.
+
+FileWriter:
+- writes bytes or JSON below an asset root;
+- creates parent directories;
+- refuses to overwrite an existing file.
+
+Skills - src/memory/skills/
+
+Each skill is a directory under data/memory/skills/ containing skill.md and,
+optionally, skill.json. SkillRegistry discovers and summarizes skills. SkillReader
+loads their full text. A JSON summary takes precedence over deriving a summary
+from the markdown body.
+
+Search - src/memory/search/indexer.py
+
+MemoryIndex stores a disposable SQLite index at data/memory/index.sqlite3.
+Before every search it scans asset memory and global journals, hashes content,
+reindexes changed files, and removes deleted files. Text is chunked near 1,000
+characters at paragraph boundaries.
+
+SQLite FTS5 provides ranked search and snippets when available. A plain table
+and LIKE query are used when the local SQLite build lacks FTS5. The index can be
+deleted and rebuilt because markdown is authoritative.
+
+
+8. ADAPTIVE FACT LAYER: src/memory/facts/
+-----------------------------------------
+
+The fact layer makes amounts, dates, parties, and other repeated values directly
+queryable while preserving the original markdown as evidence.
+
+SchemaRegistry - registry.py
+
+The global schema lives at:
+  data/memory/schema.json
+
+Its initial fields are weekly_rent, tenant_name, lease_end_date, and
+owner_entity. Supported types are string, number, boolean, date, and
+list_of_strings. Schema evolution is versioned and logged.
+
+Guardrails include:
+- snake_case field names, 2-50 characters;
+- maximum 60 active fields;
+- no in-place type changes;
+- soft deprecation rather than deletion;
+- revival only with the original type;
+- required descriptions for new and updated fields.
+
+FactReader - reader.py
+
+Current facts live at:
+  data/memory/assets/<asset_id>/facts.json
+
+History lives at:
+  data/memory/assets/<asset_id>/facts_ledger.jsonl
+
+FactReader loads current values, renders them, reads field history, and checks
+staleness. Every sourced fact stores a short hash of its source file. If the file
+changes or disappears, the fact is marked STALE until extraction runs again.
+
+FactWriter - writer.py
+
+FactWriter validates model output against the current active schema. It accepts
+null as an explicit unknown, validates every other value by schema type, retains
+existing facts not present in a new extraction, updates facts.json, and appends a
+ledger event only when a value actually changes.
+
+
+9. LLM INTEGRATION: src/llm/
+----------------------------
+
+src/llm/client.py - LLMClient
+
+LLMClient exposes role-based calls rather than making callers know model names:
+
+- generate_text(provider="codex" or "ollama")
+- generate_json(provider="codex" or "ollama")
+- run_agentic() for delegated Codex computer use
+
+An optional timing emitter reports provider, mode, and elapsed time.
+
+src/llm/adapters/codex.py - AdapterCodex
+
+Codex is invoked through the local codex CLI using subprocess input/output.
+One-shot controller and structured-generation calls run with a read-only sandbox.
+Agentic delegation can add web search, select a sandbox, set a working directory,
+and use a longer timeout.
+
+JSON parsing tolerates fenced output or limited surrounding prose but ultimately
+requires one JSON object. Missing CLI, timeout, login, and process failures become
+LLMProviderError or RoutingError instances.
+
+src/llm/adapters/ollama.py - AdapterOllama
+
+Ollama is accessed through POST <ollama_url>/api/generate. It supports plain text
+and Ollama JSON mode, validates the HTTP and response shape, and returns detailed
+configuration guidance for unreachable endpoints or missing models.
+
+Although Ollama remains available as a fast local provider, the current agent
+controller, fact extraction, and invoice generation explicitly use Codex.
+
+
+10. DOCX ARTIFACT PIPELINE: src/tools/build_docx/
+-------------------------------------------------
+
+The document engine deliberately separates semantic invoice data from visual
+layout and from low-level python-docx rendering:
+
+Gathered context
+  -> Codex invoice JSON
+  -> invoice schema validation
+  -> invoice_to_docx_spec mapper
+  -> named layout function
+  -> generic DocxSpec
+  -> DocxBuilder / renderer
+  -> temporary DOCX bytes
+  -> FileWriter under active asset
+  -> metadata sidecar
+
+schema/invoice.py
+  Validates required invoice fields, line items, numeric/text amounts, and the
+  nested business/contact/payment profile. Unknown optional text becomes
+  "To be confirmed" instead of being invented.
+
+mappers/invoice_to_docx_spec.py
+  Validates invoice data and selects a named layout. The current supported layout
+  is classic_tax_invoice.
+
+layouts/invoice/classic_tax_invoice.py
+  Translates invoice meaning into page settings, text styles, paragraphs,
+  key-value tables, line-item tables, totals, and payment information. It formats
+  numeric amounts as currency while preserving already formatted text.
+
+schema/
+  Defines the intermediate document model:
+- DocxSpec: metadata, page settings, named styles, and ordered blocks
+- PageSettings: page size, orientation, and margins
+- TextStyle: font, size, emphasis, alignment, color, and spacing properties
+- ParagraphBlock, SpacerBlock, TableBlock, and KeyValueTableBlock
+
+validators.py
+  Validates operating mode, input/output paths, invoice payloads, and DocxSpec
+  structure before rendering.
+
+builder.py and renderer.py
+  Use python-docx to create the document, apply page and text styles, render each
+  supported block type, configure tables and widths, and save the final file.
+
+tool.py
+  build_invoice_docx_artifact() produces:
+
+  data/memory/assets/<asset_id>/Artifact/<timestamp>_invoice_draft.docx
+  data/memory/assets/<asset_id>/Artifact/<timestamp>_invoice_draft.docx.meta.json
+
+The metadata sidecar includes artifact type, asset id, source files, selected
+skills, document type, full DocxSpec, draft status, and creation timestamp.
+
+run_build_docx_tool() also supports a standalone JSON-driven interface that can
+build from invoice data or a complete DocxSpec and return a structured success or
+error response.
+
+
+11. USER ENTRY POINTS
+---------------------
+
+CLI - src/cli/main.py
+
+python -m src.cli.main starts a perpetual REPL. Each task is sent through Session
+and AgentLoop. Gated tools prompt the user with y/N. Results are formatted with
+the active asset, tool trace, artifact paths, and final answer.
+
+run_once(task) is a simple one-shot Python entry point without conversational
+session state.
+
+Scheduler CLI - src/cli/schedule.py
+
+python -m src.cli.schedule reads data/schedules.json, creates a Scheduler, and
+runs its polling loop until interrupted. Its default AgentLoop denies gated tools.
+
+Output formatter - src/outputs/formatter.py
+
+Converts AgentState into a readable terminal report and displays artifact paths
+relative to the project or data directory when possible.
+
+
+12. WEB APPLICATION: front_end/
+--------------------------------
+
+front_end/server.py creates a local FastAPI application bound to 127.0.0.1:8400.
+It owns one Session and serializes chat runs with a threading lock. This matches
+the single-user local deployment model and protects shared state such as the
+SQLite connection and session summary.
+
+Web API endpoints
+
+POST /api/chat
+  Starts a worker thread and streams Server-Sent Events. Event messages contain
+  live agent activity. The final message contains answer, active asset, artifacts,
+  and turn summaries.
+
+POST /api/uploads
+  Accepts multipart file uploads. Asset-tagged uploads go to Files/ through
+  FileWriter. Untagged uploads go to data/memory/uploads/. Name collisions receive
+  a timestamp prefix.
+
+GET /api/assets
+  Lists asset profile excerpts, file counts, and stale-fact counts.
+
+GET /api/assets/{asset_id}
+  Returns an asset's files, current facts, stale flags, and DOCX artifacts.
+
+GET /api/assets/{asset_id}/files/{file_name}
+  Returns safe .md/.txt file content.
+
+GET /api/assets/{asset_id}/artifacts/{name}
+  Downloads an artifact through safe path resolution.
+
+GET /api/schema
+  Returns schema version and field definitions.
+
+GET /api/runs and GET /api/runs/{asset_id}/{name}
+  List and read asset-scoped or global run journals.
+
+GET/POST /api/workflows
+  Read or append saved task presets in data/workflows.json. The server seeds
+  arrears, lease-expiry, invoice, and fact-freshness examples when absent.
+
+GET/POST /api/settings
+  Reads or changes the in-memory allow_gated switch used by approval_policy().
+
+Static UI - front_end/static/
+
+index.html defines four main views:
+
+1. Assistant
+   Chat transcript, live activity ledger, message composer, multi-file attachment
+   picker, and asset selector for tagging uploads.
+
+2. Assets
+   Asset vault with profile cards, file browser, facts and stale indicators, and
+   artifact downloads.
+
+3. Workflows
+   Saved task presets plus a form for adding new workflow instructions.
+
+4. Runs
+   Searchable-looking chronological journal list and run detail display.
+
+The sidebar includes the Allow gated tools switch. app.js controls hash-based
+view navigation, API calls, attachment state, SSE parsing, dynamic DOM rendering,
+workflow loading, asset details, and run details. styles.css supplies the complete
+responsive workbench presentation.
+
+
+13. DATA DIRECTORY MODEL
+------------------------
+
+The expected runtime structure is:
+
+data/
+|-- memory/
+|   |-- assets/
+|   |   `-- <asset_id>/
+|   |       |-- profile.md
+|   |       |-- Files/
+|   |       |   `-- uploaded or supporting files
+|   |       |-- Artifact/
+|   |       |   |-- generated .docx files
+|   |       |   `-- .meta.json provenance sidecars
+|   |       |-- runs/
+|   |       |   `-- per-asset run journals
+|   |       |-- facts.json
+|   |       `-- facts_ledger.jsonl
+|   |-- skills/
+|   |   `-- <skill_name>/
+|   |       |-- skill.md
+|   |       `-- skill.json (optional)
+|   |-- runs/                       Asset-less run journals
+|   |-- uploads/                    Uploads not assigned to an asset
+|   |-- schema.json                 Global adaptive fact schema
+|   `-- index.sqlite3               Rebuildable full-text search cache
+|-- memory_template/
+|   `-- asset/default/              Scaffold copied for new assets
+|-- workflows.json                  Web workflow presets
+|-- schedules.json                  Scheduler task definitions
+`-- schedules_state.json            Last-run timestamps
+
+Runtime data under data/ is generally ignored by Git, while the default asset
+template is explicitly retained in the repository.
+
+
+14. IMPORTANT END-TO-END FLOWS
+------------------------------
+
+A. Answering an asset question
+
+1. The user submits a question through CLI or web chat.
+2. Session supplies compact conversation context and the previous active asset.
+3. AgentLoop asks Codex for the next JSON decision.
+4. The controller normally calls search_memory to locate evidence.
+5. It calls read_memory or query_facts for the relevant asset.
+6. If facts are stale, it calls extract_facts and queries again.
+7. It may use calculate for deterministic amounts.
+8. It returns final_answer.
+9. AgentLoop writes a run journal, which becomes searchable on the next search.
+
+B. Creating an invoice
+
+1. The agent selects and reads the asset memory.
+2. It gathers dates, parties, amounts, and payment details.
+3. It uses calculate for totals or GST where needed.
+4. generate_invoice asks Codex for strict invoice JSON.
+5. Python validates the JSON and retains it in AgentState.
+6. build_docx maps it to DocxSpec and renders it with python-docx.
+7. FileWriter stores the DOCX and provenance metadata under Artifact/.
+8. The CLI or web final response exposes the artifact path/download.
+9. The run journal records the generated artifact.
+
+C. Updating structured facts
+
+1. Markdown is added or changed under an asset.
+2. Existing sourced facts become STALE when their source hash differs.
+3. extract_facts reads memory and asks Codex for values matching active fields.
+4. FactWriter validates values and writes the current projection.
+5. Changed values append ledger events.
+6. Important unsupported information is returned as unschema_candidates.
+7. The agent may call evolve_schema and then extract_facts again.
+
+D. Web file attachment
+
+1. Browser selects one or more files and optionally an asset id.
+2. app.js uploads each file as multipart form data.
+3. The API validates the asset and normalizes the file name.
+4. Asset files are stored below Files/; untagged files go to uploads/.
+5. The chat message includes an attachment note so the agent knows what was added.
+
+E. Scheduled task
+
+1. Scheduler loads task definitions and persisted last-run timestamps.
+2. It identifies due tasks and records the attempt.
+3. Each task runs through the same AgentLoop and tools.
+4. Gated capabilities are denied unless a custom policy was supplied.
+5. The result is journaled for later audit and search.
+
+
+15. SAFETY AND INTEGRITY BOUNDARIES
+-----------------------------------
+
+- The controller runs as a read-only Codex completion and cannot act directly.
+- Capabilities must be present in the ToolSpec registry.
+- codex_agent is approval-gated.
+- Scheduled and default library runs deny gated tools.
+- Asset and file paths reject traversal, absolute paths, and root escapes.
+- FileWriter refuses accidental overwrite.
+- Memory and web content are marked untrusted in prompts and observations.
+- Arithmetic uses a restricted AST evaluator rather than eval or model math.
+- Facts are schema-validated and retain source provenance.
+- Source hashes expose stale facts after evidence changes.
+- Fact history is append-only and records value changes.
+- DOCX content is validated and rendered by Python rather than free-form model
+  document editing.
+- Observation, transcript, and session limits bound context growth.
+- The loop has a fixed iteration limit and malformed-output recovery.
+- Journaling is deterministic and auditable.
+- The web server binds only to localhost and serializes agent requests.
+
+
+16. TEST STRUCTURE AND COVERAGE
+-------------------------------
+
+tests/test_agent_loop.py
+  Tool sequencing, memory grounding, recovery, iteration limits, invoice output,
+  research delegation, malformed decisions, and empty-task rejection.
+
+tests/test_approvals_and_scheduler.py
+  Default denial, explicit approval, ungated behavior, schedule due logic,
+  persistence, unattended denial, and configuration loading.
+
+tests/test_facts_and_calc.py
+  Schema lifecycle and guardrails, fact validation, adaptive extraction flow,
+  correct arithmetic, and rejection of unsafe expressions.
+
+tests/test_front_end.py
+  SSE chat, asset and safe-path endpoints, stale facts, approval switch,
+  workflows, and run endpoints.
+
+tests/test_memory_reader.py
+  File listing, metadata summaries, reading, missing files, traversal protection,
+  absolute-path rejection, and size limits.
+
+tests/test_memory_search_and_ledger.py
+  Cross-asset search, index refresh/delete behavior, value history, stale source
+  detection, per-asset ownership, and search/history tool flow.
+
+tests/test_session_and_journal.py
+  Asset and global journals, journal search, active-asset continuity, and bounded
+  session context.
+
+tests/test_skill_reader.py
+  Skill discovery, summaries, metadata precedence, reading, and error messages.
+
+src/tools/build_docx/tests/
+  Standalone invoice-to-DOCX pipeline tests.
+
+
+17. DEPENDENCIES AND EXTERNAL SERVICES
+--------------------------------------
+
+Core requirements:
+- Python 3.11+
+- requests for Ollama and direct web fetches
+- python-docx for DOCX rendering
+
+Optional or separate requirements:
+- tavily-python for direct Tavily search
+- pytest for testing
+- FastAPI, Uvicorn, and python-multipart for the web interface
+
+External/local services:
+- logged-in Codex CLI for the controller, structured generation, and delegation
+- Ollama for optional local generation roles
+- Tavily API key for direct web search; Codex search is the fallback
+
+
+18. HOW THE COMPONENTS FIT TOGETHER
+-----------------------------------
+
+AssetOS is organized as concentric responsibility layers:
+
+1. Entry points accept work.
+   CLI, scheduler, web server, or direct Python calls create user tasks.
+
+2. Session provides bounded conversational continuity.
+   It does not execute tools or own persistent property knowledge.
+
+3. AgentLoop controls reasoning and execution.
+   It owns run state, controller prompts, tool dispatch, approvals, and recovery.
+
+4. ToolSpec exposes explicit capabilities.
+   Tools translate model intentions into validated application operations.
+
+5. Memory services own files and structured projections.
+   Registries locate; readers verify and load; writers safely create; the search
+   index accelerates retrieval; the fact layer adds queryable values and history.
+
+6. LLM adapters isolate model-provider mechanics.
+   The rest of the application requests a role rather than invoking processes or
+   HTTP APIs directly.
+
+7. Deterministic engines own sensitive computation and output.
+   The calculator, fact validators, path resolver, and DOCX renderer constrain
+   model output to known structures and reproducible operations.
+
+8. Persistence makes the system cumulative.
+   Markdown holds source knowledge, facts provide current structured views,
+   ledgers preserve changes, journals preserve episodes, and artifacts preserve
+   produced documents with provenance.
+
+This structure lets AssetOS remain agentic without making the model the system of
+record or giving it unrestricted control. The model plans and adapts; Python
+defines what is possible, verifies inputs and outputs, and preserves the audit
+trail.

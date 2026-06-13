@@ -139,7 +139,7 @@ def _browse_web(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 def _codex_agent(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     task = require_str(args, "task")
     working_dir = ctx.state.selected_asset and str(
-        ctx.asset_registry.resolve_asset_dir(ctx.state.selected_asset)
+        ctx.memory.asset_registry.resolve_asset_dir(ctx.state.selected_asset)
     )
     framed = (
         "You are a delegated sub-agent for a property-management system. "

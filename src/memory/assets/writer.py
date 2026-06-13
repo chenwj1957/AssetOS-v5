@@ -6,6 +6,7 @@ from pathlib import Path
 
 from src.core.errors import UnsafeMemoryPathError
 from src.memory.assets.registry import AssetRegistry
+from src.memory.paths import resolve_within
 
 
 class AssetWriter:
@@ -46,12 +47,7 @@ class AssetWriter:
         return self.slugify_asset_id(source)
 
     def _resolve_new_asset_dir(self, asset_id: str) -> Path:
-        dir_assets = self.registry.assets_dir.resolve()
-        dir_asset = (dir_assets / asset_id).resolve()
-        try:
-            dir_asset.relative_to(dir_assets)
-        except ValueError as exc:
-            raise UnsafeMemoryPathError(f"Asset path escapes the asset memory root: {asset_id}") from exc
+        dir_asset = resolve_within(self.registry.assets_dir, asset_id, label=f"Asset path '{asset_id}'")
         if dir_asset.exists():
             raise UnsafeMemoryPathError(f"Asset memory folder already exists: {asset_id}")
         return dir_asset

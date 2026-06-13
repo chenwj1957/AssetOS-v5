@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.agent.loop import AgentLoop
+from src.core.text import trim_to_budget
 from src.core.types import AgentState
 
 SESSION_CONTEXT_MAX_CHARS = 4_000
@@ -44,13 +45,6 @@ class Session:
         if self.active_asset:
             blocks.append(f"Active asset from earlier in this session: {self.active_asset}")
         used = sum(len(b) for b in blocks)
-        kept: list[str] = []
-        for task, answer in reversed(self.exchanges):
-            block = f"Q: {task}\nA: {answer}"
-            if used + len(block) > SESSION_CONTEXT_MAX_CHARS and kept:
-                kept.append("[earlier exchanges trimmed]")
-                break
-            kept.append(block)
-            used += len(block)
-        blocks.extend(reversed(kept))
+        exchange_blocks = [f"Q: {task}\nA: {answer}" for task, answer in self.exchanges]
+        blocks.extend(trim_to_budget(exchange_blocks, SESSION_CONTEXT_MAX_CHARS, "[earlier exchanges trimmed]", used=used))
         return "Session so far (for continuity; verify facts against memory):\n" + "\n\n".join(blocks)

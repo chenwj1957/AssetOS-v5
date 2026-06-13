@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from front_end.server import create_app
 from src.agent import AgentLoop
 from src.memory.assets import AssetRegistry
-from src.memory.facts import FactStore, SchemaStore
+from src.memory.facts import FactReader, FactWriter, SchemaRegistry
 from tests.test_agent_loop import ScriptedLLM, make_settings, seed_asset
 
 
@@ -59,9 +59,11 @@ def test_assets_endpoints_and_safe_paths(tmp_path: Path) -> None:
 def test_facts_with_stale_flag_surface_in_vault(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     seed_asset(settings)
-    schema = SchemaStore(path=settings.dir_data / "memory" / "schema.json")
-    facts = FactStore(asset_registry=AssetRegistry(settings=settings), schema_store=schema)
-    facts.save("12_ocean_st", {"weekly_rent": {"value": 1000, "source": "lease.md"}})
+    schema = SchemaRegistry(path=settings.dir_data / "memory" / "schema.json")
+    asset_registry = AssetRegistry(settings=settings)
+    fact_reader = FactReader(asset_registry=asset_registry, schema_registry=schema)
+    fact_writer = FactWriter(asset_registry=asset_registry, schema_registry=schema, reader=fact_reader)
+    fact_writer.save("12_ocean_st", {"weekly_rent": {"value": 1000, "source": "lease.md"}})
     (settings.dir_assets / "12_ocean_st" / "lease.md").write_text("Rent: $1100/week.", encoding="utf-8")
 
     loop = AgentLoop(settings=settings, llm_client=ScriptedLLM([]), emit=lambda _: None)

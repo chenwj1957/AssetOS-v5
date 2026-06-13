@@ -5,7 +5,7 @@ from typing import Any
 
 from src.agent import AgentLoop
 from src.memory.assets import AssetRegistry
-from src.memory.facts import FactStore, SchemaStore
+from src.memory.facts import FactReader, FactWriter, SchemaRegistry
 from src.memory.search import MemoryIndex
 from tests.test_agent_loop import ScriptedLLM, make_settings, seed_asset
 
@@ -13,6 +13,14 @@ from tests.test_agent_loop import ScriptedLLM, make_settings, seed_asset
 def make_index(settings) -> MemoryIndex:
     registry = AssetRegistry(settings=settings)
     return MemoryIndex(db_path=settings.dir_data / "memory" / "index.sqlite3", asset_registry=registry)
+
+
+def make_fact_stores(settings) -> tuple[SchemaRegistry, FactReader, FactWriter]:
+    schema = SchemaRegistry(path=settings.dir_data / "memory" / "schema.json")
+    asset_registry = AssetRegistry(settings=settings)
+    reader = FactReader(asset_registry=asset_registry, schema_registry=schema)
+    writer = FactWriter(asset_registry=asset_registry, schema_registry=schema, reader=reader)
+    return schema, reader, writer
 
 
 # ---------------------------------------------------------------------------
@@ -61,47 +69,44 @@ def test_search_index_refreshes_on_change_and_delete(tmp_path: Path) -> None:
 def test_ledger_records_changes_only_and_history_reads_back(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     seed_asset(settings)
-    schema = SchemaStore(path=settings.dir_data / "memory" / "schema.json")
-    facts = FactStore(asset_registry=AssetRegistry(settings=settings), schema_store=schema)
+    schema, reader, writer = make_fact_stores(settings)
 
-    facts.save("12_ocean_st", {"weekly_rent": {"value": 950, "source": "lease.md"}})
-    facts.save("12_ocean_st", {"weekly_rent": {"value": 950, "source": "lease.md"}})  # no change
-    facts.save("12_ocean_st", {"weekly_rent": {"value": 1000, "source": "lease.md"}})  # rent review
+    writer.save("12_ocean_st", {"weekly_rent": {"value": 950, "source": "lease.md"}})
+    writer.save("12_ocean_st", {"weekly_rent": {"value": 950, "source": "lease.md"}})  # no change
+    writer.save("12_ocean_st", {"weekly_rent": {"value": 1000, "source": "lease.md"}})  # rent review
 
-    history = facts.history("12_ocean_st", "weekly_rent")
+    history = reader.history("12_ocean_st", "weekly_rent")
     assert [event["value"] for event in history] == [950, 1000]
     assert history[1]["previous_value"] == 950
-    assert facts.load("12_ocean_st")["facts"]["weekly_rent"]["value"] == 1000
+    assert reader.load("12_ocean_st")["facts"]["weekly_rent"]["value"] == 1000
 
 
 def test_staleness_flagged_when_source_changes(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     seed_asset(settings)
-    schema = SchemaStore(path=settings.dir_data / "memory" / "schema.json")
-    facts = FactStore(asset_registry=AssetRegistry(settings=settings), schema_store=schema)
+    schema, reader, writer = make_fact_stores(settings)
 
-    facts.save("12_ocean_st", {"weekly_rent": {"value": 1000, "source": "lease.md"}})
-    assert facts.stale_fields("12_ocean_st") == {}
+    writer.save("12_ocean_st", {"weekly_rent": {"value": 1000, "source": "lease.md"}})
+    assert reader.stale_fields("12_ocean_st") == {}
 
     (settings.dir_assets / "12_ocean_st" / "lease.md").write_text(
         "Rent: $1100/week after review.", encoding="utf-8"
     )
-    stale = facts.stale_fields("12_ocean_st")
+    stale = reader.stale_fields("12_ocean_st")
     assert "weekly_rent" in stale
-    assert "STALE" in facts.render("12_ocean_st")
+    assert "STALE" in reader.render("12_ocean_st")
 
 
 def test_owner_entity_is_per_asset_in_seed_schema(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
-    schema = SchemaStore(path=settings.dir_data / "memory" / "schema.json")
+    schema, reader, writer = make_fact_stores(settings)
     assert "owner_entity" in schema.active_fields()
-    facts = FactStore(asset_registry=AssetRegistry(settings=settings), schema_store=schema)
     seed_asset(settings, "a_one")
     seed_asset(settings, "b_two")
-    facts.save("a_one", {"owner_entity": {"value": "Alpha Pty Ltd", "source": "profile.md"}})
-    facts.save("b_two", {"owner_entity": {"value": "Beta Pty Ltd", "source": "profile.md"}})
-    assert facts.load("a_one")["facts"]["owner_entity"]["value"] == "Alpha Pty Ltd"
-    assert facts.load("b_two")["facts"]["owner_entity"]["value"] == "Beta Pty Ltd"
+    writer.save("a_one", {"owner_entity": {"value": "Alpha Pty Ltd", "source": "profile.md"}})
+    writer.save("b_two", {"owner_entity": {"value": "Beta Pty Ltd", "source": "profile.md"}})
+    assert reader.load("a_one")["facts"]["owner_entity"]["value"] == "Alpha Pty Ltd"
+    assert reader.load("b_two")["facts"]["owner_entity"]["value"] == "Beta Pty Ltd"
 
 
 # ---------------------------------------------------------------------------
@@ -111,10 +116,9 @@ def test_owner_entity_is_per_asset_in_seed_schema(tmp_path: Path) -> None:
 def test_loop_uses_search_then_history(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     seed_asset(settings)
-    schema = SchemaStore(path=settings.dir_data / "memory" / "schema.json")
-    facts = FactStore(asset_registry=AssetRegistry(settings=settings), schema_store=schema)
-    facts.save("12_ocean_st", {"weekly_rent": {"value": 950, "source": "lease.md"}})
-    facts.save("12_ocean_st", {"weekly_rent": {"value": 1000, "source": "lease.md"}})
+    _, _, writer = make_fact_stores(settings)
+    writer.save("12_ocean_st", {"weekly_rent": {"value": 950, "source": "lease.md"}})
+    writer.save("12_ocean_st", {"weekly_rent": {"value": 1000, "source": "lease.md"}})
 
     llm = ScriptedLLM(
         [

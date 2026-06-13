@@ -4,14 +4,15 @@ import json
 from typing import Any
 
 from src.core.errors import RoutingError
-from src.memory.facts.schema_store import SchemaError
-from src.tools.base import ToolContext, ToolResult, ToolSpec, require_str
+from src.memory.facts import SchemaError
+from src.tools.base import ToolContext, ToolResult, ToolSpec, catches, require_str
 
 
 def _view_schema(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    return ToolResult(observation=ctx.schema_store.render())
+    return ToolResult(observation=ctx.memory.schema_registry.render())
 
 
+@catches(SchemaError)
 def _evolve_schema(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     operations = args.get("operations")
     if not isinstance(operations, list):
@@ -20,12 +21,9 @@ def _evolve_schema(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             '{"op": "add_field", "field": "bond_amount", "type": "number", "description": "..."}.'
         )
     reason = require_str(args, "reason")
-    try:
-        schema = ctx.schema_store.evolve(operations, reason)
-    except SchemaError as exc:
-        return ToolResult(observation=f"ERROR: {exc}")
+    schema = ctx.memory.schema_registry.evolve(operations, reason)
     return ToolResult(
-        observation=f"Schema evolved to v{schema['version']}.\n{ctx.schema_store.render()}"
+        observation=f"Schema evolved to v{schema['version']}.\n{ctx.memory.schema_registry.render()}"
     )
 
 
@@ -48,25 +46,25 @@ def _extraction_prompt(memory_text: str, schema_text: str) -> str:
 
 def _extract_facts(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     asset_id = require_str(args, "asset_id")
-    files = ctx.file_registry.list_files_by_asset(asset_id)
+    files = ctx.memory.file_registry.list_files_by_asset(asset_id)
     if not files:
         return ToolResult(observation=f"ERROR: no memory files found for asset '{asset_id}'.")
-    read = ctx.file_reader.read_files(asset_id, [f.file_name for f in files[: ctx.settings.memory_file_max_number]])
+    read = ctx.memory.file_reader.read_files(asset_id, [f.file_name for f in files[: ctx.settings.memory_file_max_number]])
     memory_text = "\n\n".join(f"## {f.file_name}\n{f.content}" for f in read)
 
     try:
         payload = ctx.llm_client.generate_json(
-            _extraction_prompt(memory_text, ctx.schema_store.render()), provider="codex"
+            _extraction_prompt(memory_text, ctx.memory.schema_registry.render()), provider="codex"
         )
     except RoutingError as exc:
         return ToolResult(observation=f"ERROR: extraction failed: {exc}")
 
     candidates = payload.pop("unschema_candidates", None)
     extracted = {k: v for k, v in payload.items() if isinstance(v, dict)}
-    saved, rejected = ctx.fact_store.save(asset_id, extracted)
+    saved, rejected = ctx.memory.fact_writer.save(asset_id, extracted)
     ctx.state.selected_asset = asset_id
 
-    parts = [ctx.fact_store.render(asset_id)]
+    parts = [ctx.memory.fact_reader.render(asset_id)]
     if rejected:
         parts.append("Rejected during validation:\n" + "\n".join(f"- {r}" for r in rejected))
     if isinstance(candidates, list) and candidates:
@@ -80,13 +78,13 @@ def _extract_facts(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
 def _query_facts(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     asset_id = require_str(args, "asset_id")
-    return ToolResult(observation=ctx.fact_store.render(asset_id))
+    return ToolResult(observation=ctx.memory.fact_reader.render(asset_id))
 
 
 def _fact_history(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     asset_id = require_str(args, "asset_id")
     field = require_str(args, "field")
-    events = ctx.fact_store.history(asset_id, field)
+    events = ctx.memory.fact_reader.history(asset_id, field)
     if not events:
         return ToolResult(observation=f"No recorded changes for '{field}' on '{asset_id}'.")
     lines = [f"History of {field} for {asset_id}:"]
@@ -101,7 +99,7 @@ def _fact_history(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 def _search_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     query = require_str(args, "query")
     asset_id = args.get("asset_id") if isinstance(args.get("asset_id"), str) else None
-    hits = ctx.memory_index.search(query, asset_id=asset_id)
+    hits = ctx.memory.memory_index.search(query, asset_id=asset_id)
     if not hits:
         return ToolResult(observation=f"No memory matched '{query}'.")
     lines = [

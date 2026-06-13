@@ -10,10 +10,3 @@ from src.tools.research_tools import RESEARCH_TOOLS
 
 def list_tools() -> list[ToolSpec]:
     return [*MEMORY_TOOLS, *FACT_TOOLS, *CALC_TOOLS, *RESEARCH_TOOLS, *ARTIFACT_TOOLS]
-
-
-def get_tool(name: str) -> ToolSpec:
-    tools = {tool.name: tool for tool in list_tools()}
-    if name not in tools:
-        raise KeyError(f"Unknown tool '{name}'. Available: {sorted(tools)}")
-    return tools[name]

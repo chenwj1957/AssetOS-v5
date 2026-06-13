@@ -74,11 +74,11 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
     session = Session(loop=agent_loop)
     app.state.session = session
 
-    registry = agent_loop._wiring["asset_registry"]
-    file_registry = agent_loop._wiring["file_registry"]
-    file_writer = agent_loop._wiring["file_writer"]
-    fact_store = agent_loop._wiring["fact_store"]
-    schema_store = agent_loop._wiring["schema_store"]
+    registry = agent_loop.memory.asset_registry
+    file_registry = agent_loop.memory.file_registry
+    file_writer = agent_loop.memory.file_writer
+    fact_reader = agent_loop.memory.fact_reader
+    schema_registry = agent_loop.memory.schema_registry
 
     uploads_dir = settings.dir_data / "memory" / "uploads"
 
@@ -182,7 +182,7 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
                     "id": asset_id,
                     "profile": profile[:240],
                     "file_count": len(files),
-                    "stale_facts": len(fact_store.stale_fields(asset_id)),
+                    "stale_facts": len(fact_reader.stale_fields(asset_id)),
                 }
             )
         return JSONResponse({"assets": assets})
@@ -196,8 +196,8 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
             {"name": f.file_name, "summary": f.summary}
             for f in file_registry.list_files_by_asset(asset_id)
         ]
-        facts_payload = fact_store.load(asset_id)
-        stale = fact_store.stale_fields(asset_id)
+        facts_payload = fact_reader.load(asset_id)
+        stale = fact_reader.stale_fields(asset_id)
         facts = [
             {
                 "field": name,
@@ -239,7 +239,7 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
 
     @app.get("/api/schema")
     def schema() -> JSONResponse:
-        payload = schema_store.load()
+        payload = schema_registry.load()
         return JSONResponse(
             {
                 "version": payload["version"],

@@ -7,19 +7,29 @@ from typing import Any
 
 from src.core.config import Settings, load_settings
 from src.core.errors import LLMProviderError, PMIntelligenceError, RoutingError
+from src.core.text import truncate_text
 from src.core.types import AgentState, AgentTurn, EventLog
 from src.llm.client import LLMClient
 from src.memory.assets import AssetRegistry, AssetWriter
 from src.memory.files.reader import FileReader
 from src.memory.files.registry import FileRegistry
-from src.memory.facts import FactStore, SchemaStore
+from src.memory.facts import FactReader, FactWriter, SchemaRegistry
 from src.memory.search import MemoryIndex
 from src.memory.files.writer import FileWriter
 from src.memory.skills import SkillReader, SkillRegistry
 from src.agent.journal import write_run_journal
 from src.agent.prompt import render_transcript, system_prompt
-from src.tools.base import ToolContext, ToolSpec
+from src.tools.base import MemoryHub, ToolContext, ToolSpec
 from src.tools.registry import list_tools
+
+
+def _print_emit(text: str) -> None:
+    print(f"\n{text}", flush=True)
+
+
+def _deny_all(tool_name: str, args: dict[str, Any]) -> bool:
+    """Safe default: deny gated tools unless a policy explicitly approves."""
+    return False
 
 
 class AgentLoop:
@@ -43,23 +53,20 @@ class AgentLoop:
         self.llm_client = llm_client or LLMClient(self.settings)
         self.tools = tools or list_tools()
         self._tools_by_name = {tool.name: tool for tool in self.tools}
-        self.emit = emit or (lambda text: print(f"\n{text}", flush=True))
-        # Safe default: deny gated tools unless a policy explicitly approves.
-        self.approval_policy = approval_policy or (lambda tool, args: False)
+        self.emit = emit or _print_emit
+        self.approval_policy = approval_policy or _deny_all
 
         asset_registry = AssetRegistry(settings=self.settings)
         file_registry = FileRegistry(settings=self.settings, asset_registry=asset_registry)
         skill_registry = SkillRegistry(settings=self.settings)
-        schema_store = SchemaStore(path=self.settings.dir_data / "memory" / "schema.json")
-        fact_store = FactStore(asset_registry=asset_registry, schema_store=schema_store)
+        schema_registry = SchemaRegistry(path=self.settings.dir_data / "memory" / "schema.json")
+        fact_reader = FactReader(asset_registry=asset_registry, schema_registry=schema_registry)
         memory_index = MemoryIndex(
             db_path=self.settings.dir_data / "memory" / "index.sqlite3",
             asset_registry=asset_registry,
             global_runs_dir=self.settings.dir_data / "memory" / "runs",
         )
-        self._wiring = dict(
-            settings=self.settings,
-            llm_client=self.llm_client,
+        self.memory = MemoryHub(
             asset_registry=asset_registry,
             asset_writer=AssetWriter(asset_registry),
             file_registry=file_registry,
@@ -67,8 +74,9 @@ class AgentLoop:
             file_writer=FileWriter(file_registry),
             skill_registry=skill_registry,
             skill_reader=SkillReader(skill_registry),
-            schema_store=schema_store,
-            fact_store=fact_store,
+            schema_registry=schema_registry,
+            fact_reader=fact_reader,
+            fact_writer=FactWriter(asset_registry=asset_registry, schema_registry=schema_registry, reader=fact_reader),
             memory_index=memory_index,
         )
 
@@ -76,7 +84,7 @@ class AgentLoop:
         if not user_task.strip():
             raise PMIntelligenceError("User task cannot be empty.")
         state = AgentState(user_task=user_task.strip(), session_context=session_context)
-        ctx = ToolContext(state=state, **self._wiring)
+        ctx = ToolContext(settings=self.settings, llm_client=self.llm_client, memory=self.memory, state=state)
         base_prompt = system_prompt(self.tools, self.settings.max_iterations)
 
         for iteration in range(1, self.settings.max_iterations + 1):
@@ -152,11 +160,7 @@ class AgentLoop:
             ctx.state.last_structured_result = result.structured
         if result.artifact is not None:
             ctx.state.artifacts.append(result.artifact)
-        observation = result.observation
-        limit = self.settings.observation_max_chars
-        if len(observation) > limit:
-            observation = observation[:limit] + "\n...[observation truncated]"
-        return observation
+        return truncate_text(result.observation, self.settings.observation_max_chars, "\n...[observation truncated]")
 
     def _log(self, state: AgentState, text: str) -> None:
         state.event_log.append(EventLog(timestamp=datetime.now(), event_details=text))

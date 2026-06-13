@@ -34,11 +34,10 @@ class SkillRegistry:
         ]
 
     def resolve_skill_path(self, skill_name: str) -> Path:
-        clean_name = Path(skill_name).name
-        return self.skills_dir / clean_name / "skill.md"
+        return self.skills_dir / self._clean_name(skill_name) / "skill.md"
 
     def skill_summary(self, skill_name: str) -> str:
-        metadata_path = self.skills_dir / Path(skill_name).name / "skill.json"
+        metadata_path = self.skills_dir / self._clean_name(skill_name) / "skill.json"
         if metadata_path.exists() and metadata_path.is_file():
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             summary = metadata.get("summary")
@@ -46,3 +45,7 @@ class SkillRegistry:
                 return " ".join(summary.split())
         path = self.resolve_skill_path(skill_name)
         return " ".join(path.read_text(encoding="utf-8").split())
+
+    @staticmethod
+    def _clean_name(skill_name: str) -> str:
+        return Path(skill_name).name

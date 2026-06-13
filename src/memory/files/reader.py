@@ -30,7 +30,7 @@ class FileReader:
             asset_id=asset_id,
             file_name=selected_file,
             path=path,
-            summary=self.registry._load_file_summary(path),
+            summary=self.registry.load_file_summary(path),
             content=path.read_text(encoding="utf-8"),
         )
 

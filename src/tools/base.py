@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import functools
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from src.core.config import Settings
 from src.core.types import AgentState, ArtifactResult
 from src.llm.client import LLMClient
 from src.memory.assets import AssetRegistry, AssetWriter
-from src.memory.facts import FactStore, SchemaStore
+from src.memory.facts import FactReader, FactWriter, SchemaRegistry
 from src.memory.search import MemoryIndex
 from src.memory.files.reader import FileReader
 from src.memory.files.registry import FileRegistry
@@ -16,10 +17,8 @@ from src.memory.skills import SkillReader, SkillRegistry
 
 
 @dataclass
-class ToolContext:
-    """Everything a tool may need, wired once by the agent."""
-    settings: Settings
-    llm_client: LLMClient
+class MemoryHub:
+    """All memory-layer collaborators a tool may need, wired once by the agent."""
     asset_registry: AssetRegistry
     asset_writer: AssetWriter
     file_registry: FileRegistry
@@ -27,9 +26,18 @@ class ToolContext:
     file_writer: FileWriter
     skill_registry: SkillRegistry
     skill_reader: SkillReader
-    schema_store: SchemaStore
-    fact_store: FactStore
+    schema_registry: SchemaRegistry
+    fact_reader: FactReader
+    fact_writer: FactWriter
     memory_index: MemoryIndex
+
+
+@dataclass
+class ToolContext:
+    """Everything a tool may need, wired once by the agent."""
+    settings: Settings
+    llm_client: LLMClient
+    memory: MemoryHub
     state: AgentState
 
 
@@ -67,3 +75,20 @@ def require_str(args: dict[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"Tool argument '{key}' must be a non-empty string.")
     return value.strip()
+
+
+def catches(*exc_types: type[Exception]) -> Callable[[Callable[..., ToolResult]], Callable[..., ToolResult]]:
+    """Wrap a tool's ``run`` function so the listed exceptions become an
+    ``ERROR: ...`` observation instead of failing the agent loop."""
+
+    def decorator(fn: Callable[..., ToolResult]) -> Callable[..., ToolResult]:
+        @functools.wraps(fn)
+        def wrapper(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+            try:
+                return fn(ctx, args)
+            except exc_types as exc:
+                return ToolResult(observation=f"ERROR: {exc}")
+
+        return wrapper
+
+    return decorator

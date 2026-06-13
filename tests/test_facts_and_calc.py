@@ -7,16 +7,18 @@ import pytest
 
 from src.agent import AgentLoop
 from src.memory.assets import AssetRegistry
-from src.memory.facts import FactStore, SchemaError, SchemaStore
+from src.memory.facts import FactReader, FactWriter, SchemaError, SchemaRegistry
 from src.tools.calc_tool import evaluate_expression
 from tests.test_agent_loop import ScriptedLLM, make_settings, seed_asset
 
 
 def make_stores(tmp_path: Path):
     settings = make_settings(tmp_path)
-    schema = SchemaStore(path=settings.dir_data / "memory" / "schema.json")
-    facts = FactStore(asset_registry=AssetRegistry(settings=settings), schema_store=schema)
-    return settings, schema, facts
+    schema = SchemaRegistry(path=settings.dir_data / "memory" / "schema.json")
+    asset_registry = AssetRegistry(settings=settings)
+    reader = FactReader(asset_registry=asset_registry, schema_registry=schema)
+    writer = FactWriter(asset_registry=asset_registry, schema_registry=schema, reader=reader)
+    return settings, schema, reader, writer
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +26,7 @@ def make_stores(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 def test_schema_expands_contracts_and_revives(tmp_path: Path) -> None:
-    _, schema, _ = make_stores(tmp_path)
+    _, schema, _, _ = make_stores(tmp_path)
     assert "weekly_rent" in schema.active_fields()
 
     schema.evolve(
@@ -47,7 +49,7 @@ def test_schema_expands_contracts_and_revives(tmp_path: Path) -> None:
 
 
 def test_schema_guardrails(tmp_path: Path) -> None:
-    _, schema, _ = make_stores(tmp_path)
+    _, schema, _, _ = make_stores(tmp_path)
     with pytest.raises(SchemaError):  # bad type
         schema.evolve([{"op": "add_field", "field": "x_field", "type": "blob", "description": "d"}], "r")
     with pytest.raises(SchemaError):  # bad name
@@ -60,9 +62,9 @@ def test_schema_guardrails(tmp_path: Path) -> None:
 
 
 def test_fact_validation_and_unknown_field_feedback(tmp_path: Path) -> None:
-    settings, schema, facts = make_stores(tmp_path)
+    settings, schema, reader, writer = make_stores(tmp_path)
     seed_asset(settings)
-    saved, rejected = facts.save(
+    saved, rejected = writer.save(
         "12_ocean_st",
         {
             "weekly_rent": {"value": 1000, "source": "lease.md"},
@@ -77,7 +79,7 @@ def test_fact_validation_and_unknown_field_feedback(tmp_path: Path) -> None:
 
     # Deprecated fields keep their data, flagged on render.
     schema.evolve([{"op": "deprecate_field", "field": "weekly_rent"}], "test")
-    assert "[field deprecated]" in facts.render("12_ocean_st")
+    assert "[field deprecated]" in reader.render("12_ocean_st")
 
 
 # ---------------------------------------------------------------------------

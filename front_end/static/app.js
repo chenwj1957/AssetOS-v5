@@ -26,14 +26,23 @@ window.addEventListener("hashchange", () => showView(location.hash.slice(1)));
 /* ------------------------------------------------------------------ */
 
 const gateSwitch = document.getElementById("gate-switch");
+const gateState = document.getElementById("gate-state");
+
+function renderGateState() {
+  gateState.textContent = gateSwitch.checked ? "Gated tools allowed" : "Gated tools off";
+  gateSwitch.closest(".gate-toggle").querySelector(".gate-label").textContent =
+    gateSwitch.checked ? "Action mode" : "Draft mode";
+}
 
 async function initGate() {
   const response = await fetch("/api/settings");
   const payload = await response.json();
   gateSwitch.checked = payload.allow_gated;
+  renderGateState();
 }
 
 gateSwitch.addEventListener("change", () => {
+  renderGateState();
   fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -54,6 +63,7 @@ const composerAttach = document.getElementById("composer-attach");
 const composerAssetSelect = document.getElementById("composer-asset");
 const composerFileInput = document.getElementById("composer-file-input");
 const attachmentsBar = document.getElementById("attachments");
+const quickActions = document.querySelectorAll(".quick-action");
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -77,7 +87,7 @@ async function loadAssetOptions() {
     const response = await fetch("/api/assets");
     const { assets } = await response.json();
     const current = composerAssetSelect.value;
-    const noAssetOption = el("option", "", "No asset");
+    const noAssetOption = el("option", "", "Portfolio-wide");
     noAssetOption.value = "";
     composerAssetSelect.replaceChildren(noAssetOption);
     for (const asset of assets) {
@@ -151,25 +161,40 @@ composerFileInput.addEventListener("change", () => {
   composerFileInput.value = "";
 });
 
+quickActions.forEach((action) => {
+  action.addEventListener("click", () => {
+    composerInput.value = action.dataset.prompt || "";
+    composerInput.dispatchEvent(new Event("input"));
+    composerInput.focus();
+  });
+});
+
 async function sendMessage(message) {
   const empty = document.getElementById("chat-empty");
   if (empty) empty.remove();
 
   const attachments = pendingAttachments.filter((a) => a.status === "done");
+  const selectedAsset = composerAssetSelect.value;
   let outgoingMessage = message;
+  if (selectedAsset) {
+    outgoingMessage = `${outgoingMessage}\n\n[Selected asset context: ${selectedAsset}]`;
+  }
   if (attachments.length) {
     const note = attachments
       .map((a) => (a.assetId ? `${a.name} (asset: ${a.assetId})` : a.name))
       .join(", ");
-    outgoingMessage = `${message}\n\n[Attached file(s): ${note}]`;
+    outgoingMessage = `${outgoingMessage}\n\n[Attached file(s): ${note}]`;
   }
   pendingAttachments = [];
   renderAttachments();
 
   const userMsg = el("div", "msg msg-user");
   userMsg.appendChild(el("div", "msg-body", message));
-  if (attachments.length) {
+  if (selectedAsset || attachments.length) {
     const chips = el("div", "msg-attachments");
+    if (selectedAsset) {
+      chips.appendChild(el("span", "msg-attachment-chip", `Context: ${selectedAsset}`));
+    }
     for (const a of attachments) {
       chips.appendChild(el("span", "msg-attachment-chip", a.assetId ? `${a.name} → ${a.assetId}` : a.name));
     }

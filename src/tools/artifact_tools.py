@@ -67,7 +67,7 @@ def _build_docx(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     artifact = build_invoice_docx_artifact(
         invoice,
         asset_id,
-        ctx.file_writer,
+        ctx.memory.file_writer,
         source_files=sorted(set(source_files)),
     )
     return ToolResult(

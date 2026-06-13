@@ -12,23 +12,44 @@
 <body>
 
 <aside class="sidebar">
-  <div class="wordmark">AssetOS</div>
-  <div class="wordmark-sub">Property intelligence</div>
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">A</div>
+    <div>
+      <div class="wordmark">AssetOS</div>
+      <div class="wordmark-sub">Property intelligence</div>
+    </div>
+  </div>
 
   <nav class="nav" aria-label="Primary">
-    <a href="#assistant" class="nav-item" data-view="assistant">Assistant</a>
-    <a href="#assets" class="nav-item" data-view="assets">Assets</a>
-    <a href="#workflows" class="nav-item" data-view="workflows">Workflows</a>
-    <a href="#runs" class="nav-item" data-view="runs">Runs</a>
+    <div class="nav-label">Workspace</div>
+    <a href="#assistant" class="nav-item" data-view="assistant">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11H8l-4 3v-14Z"/><path d="M8 9h8M8 13h5"/></svg>
+      <span>Assistant</span>
+    </a>
+    <a href="#assets" class="nav-item" data-view="assets">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 20.5h17M5.5 20V8l6.5-4 6.5 4v12M9 20v-5h6v5M8 10h2M14 10h2"/></svg>
+      <span>Assets</span>
+    </a>
+    <a href="#workflows" class="nav-item" data-view="workflows">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12v16H6zM9 8h6M9 12h6M9 16h4"/></svg>
+      <span>Workflows</span>
+    </a>
+    <a href="#runs" class="nav-item" data-view="runs">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9M4.5 5v4h4"/></svg>
+      <span>Runs</span>
+    </a>
   </nav>
 
   <div class="sidebar-foot">
+    <div class="safety-label">Execution policy</div>
     <label class="gate-toggle">
       <input type="checkbox" id="gate-switch" />
       <span class="gate-track" aria-hidden="true"></span>
-      <span class="gate-label">Allow gated tools</span>
+      <span class="gate-copy">
+        <span class="gate-label">Draft mode</span>
+        <span class="gate-state" id="gate-state">Gated tools off</span>
+      </span>
     </label>
-    <p class="gate-hint">Off: the agent drafts and recommends. On: delegated computer-use tools may act.</p>
   </div>
 </aside>
 
@@ -39,36 +60,66 @@
     <div class="chat-scroll" id="chat-scroll">
       <div class="chat-column" id="chat-column">
         <div class="chat-empty" id="chat-empty">
-          <h1 class="view-title">Ask about the portfolio</h1>
-          <p>Memory-grounded answers, web research when facts are missing, drafted artifacts when you need documents. Every run is journaled.</p>
+          <div class="hero-kicker"><span class="status-dot"></span> Portfolio intelligence workspace</div>
+          <h1>What needs attention<br />across your portfolio?</h1>
+          <p class="hero-copy">Ask AssetOS to investigate records, compare facts, prepare documents, or review the portfolio. Every answer is grounded in memory and every action is journaled.</p>
+
+          <div class="quick-actions" aria-label="Suggested questions">
+            <button type="button" class="quick-action" data-prompt="Review all assets for stale facts, upcoming lease expiries, and anything requiring attention.">
+              <span class="quick-icon">01</span>
+              <span><strong>Portfolio health check</strong><small>Surface stale facts and upcoming dates</small></span>
+            </button>
+            <button type="button" class="quick-action" data-prompt="Compare current weekly rent across all assets and identify any records that need a market review.">
+              <span class="quick-icon">02</span>
+              <span><strong>Review rent position</strong><small>Compare rents and flag gaps</small></span>
+            </button>
+            <button type="button" class="quick-action" data-prompt="Find leases expiring within the next 90 days and recommend the next action for each asset.">
+              <span class="quick-icon">03</span>
+              <span><strong>Lease expiry watch</strong><small>Find deadlines in the next 90 days</small></span>
+            </button>
+            <button type="button" class="quick-action" data-prompt="Help me prepare a property document. First ask which asset and document type I need.">
+              <span class="quick-icon">04</span>
+              <span><strong>Prepare a document</strong><small>Draft an invoice, note, or report</small></span>
+            </button>
+          </div>
+
+          <div class="trust-row">
+            <span>Memory grounded</span>
+            <span>Source aware</span>
+            <span>Audit journal on</span>
+          </div>
         </div>
       </div>
     </div>
-    <form class="composer" id="composer">
-      <div class="composer-panel">
-        <div class="attachments composer-attachments" id="attachments" hidden></div>
-        <textarea id="composer-input" rows="1" placeholder="Message AssetOS" aria-label="Message the agent"></textarea>
-        <div class="composer-toolbar" aria-label="Message controls">
-          <div class="composer-actions">
-            <input type="file" id="composer-file-input" multiple accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv,.xlsx" hidden />
-            <button type="button" id="composer-attach" class="composer-icon-btn" title="Upload files or photos" aria-label="Upload files or photos">
-              <span aria-hidden="true">+</span>
-              <span>Upload</span>
+    <div class="composer-dock">
+      <div class="attachments" id="attachments" hidden></div>
+      <form class="composer" id="composer">
+        <input type="file" id="composer-file-input" multiple accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv,.xlsx" hidden />
+        <textarea id="composer-input" rows="1" placeholder="Ask about an asset, a lease, a payment, or the whole portfolio..." aria-label="Message the agent"></textarea>
+        <div class="composer-tools">
+          <div class="composer-tools-left">
+            <button type="button" id="composer-attach" class="composer-icon-btn" title="Attach files" aria-label="Attach files">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 12.5 14 7a3 3 0 0 1 4.2 4.2l-7.1 7.1a5 5 0 0 1-7.1-7.1l7.4-7.4"/></svg>
+              <span>Attach</span>
             </button>
-            <label class="composer-asset-wrap" for="composer-asset">
-              <span class="composer-asset-label">Asset</span>
-              <select id="composer-asset" class="composer-asset" aria-label="Select an asset for uploads">
-                <option value="">No asset</option>
+            <label class="asset-control">
+              <span>Context</span>
+              <select id="composer-asset" class="composer-asset" aria-label="Tag attachments to an asset">
+                <option value="">Portfolio-wide</option>
               </select>
             </label>
           </div>
-          <button type="submit" id="composer-send" class="composer-send" aria-label="Send message">
-            <span aria-hidden="true">↑</span>
-            <span class="send-label">Send</span>
-          </button>
+          <div class="composer-tools-right">
+            <span class="composer-hint">Enter to send</span>
+            <button type="submit" id="composer-send">
+              <span>Send</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-5-7-2Z"/></svg>
+            </button>
+          </div>
         </div>
-      </div>
-    </form>
+      </form>
+      <p class="composer-note">AssetOS may research and draft. Verify material decisions before acting.</p>
+    </div>
   </section>
 
   <!-- Assets -->
@@ -98,7 +149,7 @@
   <section class="view" id="view-runs" hidden>
     <div class="page-column">
       <h1 class="view-title">Run journal</h1>
-      <p class="view-lede">Every run — interactive or scheduled — leaves an auditable record.</p>
+      <p class="view-lede">Every run, interactive or scheduled, leaves an auditable record.</p>
       <div id="runs-list" class="runs-list"></div>
       <div id="run-detail" hidden></div>
     </div>
