@@ -5,7 +5,7 @@ from time import perf_counter
 from typing import Any, Literal
 
 from src.core.config import Settings, load_settings
-from src.llm.adapters.codex import AdapterCodex
+from src.llm.adapters.codex import AdapterCodex, AgenticResult
 from src.llm.adapters.ollama import AdapterOllama
 
 Provider = Literal["ollama", "codex"]
@@ -38,7 +38,7 @@ class LLMClient:
     def generate_json(self, prompt: str, provider: Provider = "codex") -> dict[str, Any]:
         return self._timed(provider, "json", lambda: self._adapter(provider).generate_json(prompt))
 
-    def run_agentic(self, task: str, **kwargs: Any) -> str:
+    def run_agentic(self, task: str, **kwargs: Any) -> AgenticResult:
         """Delegate a sub-task to the Codex agent (computer use)."""
         return self._timed("codex", "agentic", lambda: self.adapter_codex.run_agentic(task, **kwargs))
 

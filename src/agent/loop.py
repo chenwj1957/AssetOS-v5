@@ -16,7 +16,8 @@ from src.memory.files.registry import FileRegistry
 from src.memory.facts import FactReader, FactWriter, SchemaRegistry
 from src.memory.search import MemoryIndex
 from src.memory.files.writer import FileWriter
-from src.memory.skills import SkillReader, SkillRegistry
+from src.memory.skills import SkillReader, SkillRegistry, SkillWriter
+from src.agent.approval import ApprovalGate
 from src.agent.journal import write_run_journal
 from src.agent.prompt import render_transcript, system_prompt
 from src.tools.base import MemoryHub, ToolContext, ToolSpec
@@ -30,6 +31,10 @@ def _print_emit(event: dict[str, Any]) -> None:
 def _deny_all(tool_name: str, args: dict[str, Any]) -> bool:
     """Safe default: deny gated tools unless a policy explicitly approves."""
     return False
+
+
+def _always_enabled(_name: str) -> bool:
+    return True
 
 
 class AgentLoop:
@@ -48,6 +53,8 @@ class AgentLoop:
         tools: list[ToolSpec] | None = None,
         emit: Callable[[dict[str, Any]], None] | None = None,
         approval_policy: Callable[[str, dict[str, Any]], bool] | None = None,
+        tool_enabled: Callable[[str], bool] | None = None,
+        skill_enabled: Callable[[str], bool] | None = None,
     ) -> None:
         self.settings = settings or load_settings()
         self.llm_client = llm_client or LLMClient(self.settings)
@@ -55,6 +62,8 @@ class AgentLoop:
         self._tools_by_name = {tool.name: tool for tool in self.tools}
         self.emit = emit or _print_emit
         self.approval_policy = approval_policy or _deny_all
+        self.tool_enabled = tool_enabled or _always_enabled
+        self.skill_enabled = skill_enabled or _always_enabled
 
         asset_registry = AssetRegistry(settings=self.settings)
         file_registry = FileRegistry(settings=self.settings, asset_registry=asset_registry)
@@ -74,6 +83,7 @@ class AgentLoop:
             file_writer=FileWriter(file_registry),
             skill_registry=skill_registry,
             skill_reader=SkillReader(skill_registry),
+            skill_writer=SkillWriter(skill_registry),
             schema_registry=schema_registry,
             fact_reader=fact_reader,
             fact_writer=FactWriter(asset_registry=asset_registry, schema_registry=schema_registry, reader=fact_reader),
@@ -85,12 +95,20 @@ class AgentLoop:
         user_task: str,
         session_context: str = "",
         cancel_event: threading.Event | None = None,
+        approval_gate: ApprovalGate | None = None,
     ) -> AgentState:
         if not user_task.strip():
             raise PMIntelligenceError("User task cannot be empty.")
         state = AgentState(user_task=user_task.strip(), session_context=session_context)
-        ctx = ToolContext(settings=self.settings, llm_client=self.llm_client, memory=self.memory, state=state)
-        base_prompt = system_prompt(self.tools, self.settings.max_iterations)
+        ctx = ToolContext(
+            settings=self.settings,
+            llm_client=self.llm_client,
+            memory=self.memory,
+            state=state,
+            skill_enabled=self.skill_enabled,
+        )
+        active_tools = [tool for tool in self.tools if self.tool_enabled(tool.name)]
+        base_prompt = system_prompt(active_tools, self.settings.max_iterations)
 
         for iteration in range(1, self.settings.max_iterations + 1):
             if cancel_event is not None and cancel_event.is_set():
@@ -125,15 +143,35 @@ class AgentLoop:
                 "thought": thought,
             })
 
-            turn.observation = self._execute(ctx, tool_name, args)
-            self._log(state, {
+            tool = self._tools_by_name.get(tool_name)
+            approved = True
+            if tool is not None and tool.requires_approval and not self.approval_policy(tool_name, args):
+                self._log(state, {
+                    "type": "approval_request",
+                    "iteration": iteration,
+                    "tool": tool_name,
+                    "args": args,
+                })
+                approved = approval_gate.wait(cancel_event) if approval_gate is not None else False
+                self._log(state, {
+                    "type": "approval_result",
+                    "iteration": iteration,
+                    "tool": tool_name,
+                    "approved": approved,
+                })
+
+            turn.observation, timeline = self._execute(ctx, tool_name, args, approved=approved)
+            observation_event: dict[str, Any] = {
                 "type": "observation",
                 "iteration": iteration,
                 "tool": tool_name,
                 "text": turn.observation,
                 "chars": len(turn.observation),
                 "ok": not turn.observation.startswith(("ERROR", "DENIED")),
-            })
+            }
+            if timeline:
+                observation_event["timeline"] = timeline
+            self._log(state, observation_event)
 
         state.answer = state.answer or (
             "I reached the iteration limit before finishing. Progress so far:\n"
@@ -165,24 +203,30 @@ class AgentLoop:
             retry_prompt = f"{prompt}\n\nYour previous reply was invalid JSON ({exc}). Reply with one JSON object only."
             return self.llm_client.generate_json(retry_prompt, provider="codex")
 
-    def _execute(self, ctx: ToolContext, tool_name: str, args: dict[str, Any]) -> str:
+    def _execute(
+        self, ctx: ToolContext, tool_name: str, args: dict[str, Any], approved: bool = True
+    ) -> tuple[str, list[dict[str, Any]] | None]:
         tool = self._tools_by_name.get(tool_name)
         if tool is None:
-            return f"ERROR: unknown tool '{tool_name}'. Available: {sorted(self._tools_by_name)}"
-        if tool.requires_approval and not self.approval_policy(tool_name, args):
+            return f"ERROR: unknown tool '{tool_name}'. Available: {sorted(self._tools_by_name)}", None
+        if not self.tool_enabled(tool_name):
+            return f"ERROR: tool '{tool_name}' is currently disabled by the user.", None
+        if tool.requires_approval and not approved and not self.approval_policy(tool_name, args):
             return (
                 f"DENIED: '{tool_name}' requires human approval, which was not granted in this run. "
-                "Adapt: use a non-gated tool, or finish with a draft/recommendation the human can action."
+                "Adapt: use a non-gated tool, or finish with a draft/recommendation the human can action.",
+                None,
             )
         try:
             result = tool.run(ctx, args)
         except (ValueError, LLMProviderError, RoutingError) as exc:
-            return f"ERROR running {tool_name}: {exc}"
+            return f"ERROR running {tool_name}: {exc}", None
         if result.structured is not None:
             ctx.state.last_structured_result = result.structured
         if result.artifact is not None:
             ctx.state.artifacts.append(result.artifact)
-        return truncate_text(result.observation, self.settings.observation_max_chars, "\n...[observation truncated]")
+        observation = truncate_text(result.observation, self.settings.observation_max_chars, "\n...[observation truncated]")
+        return observation, result.timeline
 
     def _log(self, state: AgentState, event: dict[str, Any]) -> None:
         state.event_log.append(EventLog(timestamp=datetime.now(), event_details=event))

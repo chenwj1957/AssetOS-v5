@@ -66,7 +66,7 @@ def _save_memory_note(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
 
 def _list_skills(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    skills = ctx.memory.skill_registry.list_available_skills()
+    skills = [s for s in ctx.memory.skill_registry.list_available_skills() if ctx.skill_enabled(s["name"])]
     if not skills:
         return ToolResult(observation="No skills are available.")
     lines = [f"- {s['name']}: {s['summary']}" for s in skills]
@@ -76,6 +76,8 @@ def _list_skills(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 @catches(SkillNotFoundError)
 def _load_skill(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     name = require_str(args, "name")
+    if not ctx.skill_enabled(name):
+        return ToolResult(observation=f"ERROR: skill '{name}' is currently disabled by the user.")
     skill = ctx.memory.skill_reader.read_skill(name)
     return ToolResult(
         observation=(

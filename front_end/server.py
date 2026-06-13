@@ -21,8 +21,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.agent import AgentLoop, Session
+from src.agent.approval import ApprovalGate
 from src.core.config import Settings, load_settings
 from src.core.errors import PMIntelligenceError, UnsafeMemoryPathError
+from src.memory.skills import SkillWriter
 
 STATIC_DIR = Path(__file__).parent / "static"
 DEFAULT_WORKFLOWS = [
@@ -58,6 +60,20 @@ class WorkflowRequest(BaseModel):
     task: str
 
 
+class ApprovalRequest(BaseModel):
+    approved: bool
+
+
+class ToggleRequest(BaseModel):
+    enabled: bool
+
+
+class SkillCreateRequest(BaseModel):
+    name: str
+    content: str
+    summary: str = ""
+
+
 def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) -> FastAPI:
     settings = settings or load_settings()
     app = FastAPI(title="AssetOS", docs_url=None, redoc_url=None)
@@ -67,19 +83,62 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
     def approval_policy(tool_name: str, args: dict[str, Any]) -> bool:
         return bool(app.state.allow_gated)
 
-    agent_loop = loop or AgentLoop(settings=settings, approval_policy=approval_policy)
+    capabilities_path = settings.dir_data / "capabilities.json"
+
+    def _load_capabilities() -> tuple[set[str], set[str]]:
+        if capabilities_path.exists():
+            try:
+                data = json.loads(capabilities_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                data = {}
+        else:
+            data = {}
+        return set(data.get("disabled_tools", [])), set(data.get("disabled_skills", []))
+
+    def _save_capabilities() -> None:
+        capabilities_path.parent.mkdir(parents=True, exist_ok=True)
+        capabilities_path.write_text(
+            json.dumps(
+                {
+                    "disabled_tools": sorted(app.state.disabled_tools),
+                    "disabled_skills": sorted(app.state.disabled_skills),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+    app.state.disabled_tools, app.state.disabled_skills = _load_capabilities()
+
+    def tool_enabled(tool_name: str) -> bool:
+        return tool_name not in app.state.disabled_tools
+
+    def skill_enabled(skill_name: str) -> bool:
+        return skill_name not in app.state.disabled_skills
+
+    agent_loop = loop or AgentLoop(
+        settings=settings,
+        approval_policy=approval_policy,
+        tool_enabled=tool_enabled,
+        skill_enabled=skill_enabled,
+    )
     if loop is not None:
-        # Injected loops (tests) still respect the UI's gated-tools switch.
+        # Injected loops (tests) still respect the UI's switches.
         agent_loop.approval_policy = approval_policy
+        agent_loop.tool_enabled = tool_enabled
+        agent_loop.skill_enabled = skill_enabled
     session = Session(loop=agent_loop)
     app.state.session = session
     app.state.active_cancel_event = None
+    app.state.active_approval_gate = None
 
     registry = agent_loop.memory.asset_registry
     file_registry = agent_loop.memory.file_registry
     file_writer = agent_loop.memory.file_writer
     fact_reader = agent_loop.memory.fact_reader
     schema_registry = agent_loop.memory.schema_registry
+    skill_registry = agent_loop.memory.skill_registry
+    skill_writer = agent_loop.memory.skill_writer
 
     uploads_dir = settings.dir_data / "memory" / "uploads"
 
@@ -95,7 +154,9 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
 
         events: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
         cancel_event = threading.Event()
+        approval_gate = ApprovalGate()
         app.state.active_cancel_event = cancel_event
+        app.state.active_approval_gate = approval_gate
 
         def emit(event: dict[str, Any]) -> None:
             events.put({"type": "step", "step": event})
@@ -104,7 +165,7 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
             with app.state.chat_lock:
                 agent_loop.emit = emit
                 try:
-                    state = session.ask(message, cancel_event=cancel_event)
+                    state = session.ask(message, cancel_event=cancel_event, approval_gate=approval_gate)
                     events.put(
                         {
                             "type": "final",
@@ -129,6 +190,8 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
                 finally:
                     if app.state.active_cancel_event is cancel_event:
                         app.state.active_cancel_event = None
+                    if app.state.active_approval_gate is approval_gate:
+                        app.state.active_approval_gate = None
                     events.put(None)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -149,6 +212,14 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
             return JSONResponse({"stopped": False})
         cancel_event.set()
         return JSONResponse({"stopped": True})
+
+    @app.post("/api/chat/approve")
+    def approve_chat(request: ApprovalRequest) -> JSONResponse:
+        gate = app.state.active_approval_gate
+        if gate is None:
+            return JSONResponse({"ok": False})
+        gate.resolve(request.approved)
+        return JSONResponse({"ok": True})
 
     # ------------------------------------------------------------------
     # Uploads: attach a file to the conversation, optionally tagged to an asset
@@ -329,6 +400,62 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
     def update_settings(request: SettingsRequest) -> JSONResponse:
         app.state.allow_gated = request.allow_gated
         return JSONResponse({"allow_gated": bool(app.state.allow_gated)})
+
+    # ------------------------------------------------------------------
+    # Capabilities: enable/disable tools and skills (persisted)
+    # ------------------------------------------------------------------
+
+    @app.get("/api/capabilities")
+    def get_capabilities() -> JSONResponse:
+        tools = [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "args": tool.args,
+                "requires_approval": tool.requires_approval,
+                "enabled": tool_enabled(tool.name),
+            }
+            for tool in agent_loop.tools
+        ]
+        skills = [
+            {"name": s["name"], "summary": s["summary"], "enabled": skill_enabled(s["name"])}
+            for s in skill_registry.list_available_skills()
+        ]
+        return JSONResponse({"tools": tools, "skills": skills})
+
+    @app.post("/api/capabilities/tools/{name}")
+    def toggle_tool(name: str, request: ToggleRequest) -> JSONResponse:
+        if name not in {tool.name for tool in agent_loop.tools}:
+            raise HTTPException(status_code=404, detail=f"No tool '{name}'.")
+        if request.enabled:
+            app.state.disabled_tools.discard(name)
+        else:
+            app.state.disabled_tools.add(name)
+        _save_capabilities()
+        return JSONResponse({"name": name, "enabled": request.enabled})
+
+    @app.post("/api/capabilities/skills/{name}")
+    def toggle_skill(name: str, request: ToggleRequest) -> JSONResponse:
+        if name not in skill_registry.list_skill_names():
+            raise HTTPException(status_code=404, detail=f"No skill '{name}'.")
+        if request.enabled:
+            app.state.disabled_skills.discard(name)
+        else:
+            app.state.disabled_skills.add(name)
+        _save_capabilities()
+        return JSONResponse({"name": name, "enabled": request.enabled})
+
+    @app.post("/api/skills")
+    def create_skill(request: SkillCreateRequest) -> JSONResponse:
+        name = request.name.strip()
+        content = request.content.strip()
+        if not name or not content:
+            raise HTTPException(status_code=400, detail="Skill name and content are required.")
+        try:
+            skill_dir = skill_writer.create_skill(name, content, summary=request.summary)
+        except (ValueError, UnsafeMemoryPathError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return JSONResponse({"name": skill_dir.name, "enabled": skill_enabled(skill_dir.name)})
 
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app

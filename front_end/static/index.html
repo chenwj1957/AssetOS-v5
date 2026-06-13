@@ -38,6 +38,10 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9M4.5 5v4h4"/></svg>
       <span>Runs</span>
     </a>
+    <a href="#capabilities" class="nav-item" data-view="capabilities">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2 2-2-1-1-2z"/></svg>
+      <span>Capabilities</span>
+    </a>
   </nav>
 
   <div class="sidebar-foot">
@@ -124,7 +128,8 @@
           <p class="composer-note">AssetOS may research and draft. Verify material decisions before acting.</p>
         </div>
       </div>
-      <aside class="activity-panel" id="activity-panel">
+      <div class="activity-resizer" id="activity-resizer" hidden></div>
+      <aside class="activity-panel" id="activity-panel" hidden>
         <div class="activity-panel-head">
           <span class="panel-kicker">Agent activity</span>
           <span class="activity-live" id="activity-live" hidden><span class="status-dot"></span> Running</span>
@@ -164,8 +169,40 @@
     <div class="page-column">
       <h1 class="view-title">Run journal</h1>
       <p class="view-lede">Every run, interactive or scheduled, leaves an auditable record.</p>
-      <div id="runs-list" class="runs-list"></div>
-      <div id="run-detail" hidden></div>
+      <div class="runs-layout">
+        <div id="runs-list" class="runs-main"></div>
+        <div id="runs-resizer" class="runs-resizer"></div>
+        <div id="run-detail" class="runs-panel"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Capabilities -->
+  <section class="view" id="view-capabilities" hidden>
+    <div class="page-column">
+      <h1 class="view-title">Capabilities</h1>
+      <p class="view-lede">Turn tools and skills on or off for the assistant. Changes persist across sessions.</p>
+
+      <div class="cap-tabs" role="tablist">
+        <button type="button" class="cap-tab active" data-tab="skills" role="tab">Skills</button>
+        <button type="button" class="cap-tab" data-tab="tools" role="tab">Tools</button>
+      </div>
+
+      <div class="cap-panel" id="cap-panel-skills">
+        <div id="skills-list" class="cap-list"></div>
+
+        <h2 class="cap-subtitle">Write a new skill</h2>
+        <form id="skill-form" class="cap-form">
+          <input type="text" id="skill-name" placeholder="Skill name" aria-label="Skill name" required />
+          <input type="text" id="skill-summary" placeholder="One-line summary (optional)" aria-label="Skill summary" />
+          <textarea id="skill-content" rows="6" placeholder="Skill content (markdown)" aria-label="Skill content" required></textarea>
+          <button type="submit">Save skill</button>
+        </form>
+      </div>
+
+      <div class="cap-panel" id="cap-panel-tools" hidden>
+        <div id="tools-list" class="cap-list"></div>
+      </div>
     </div>
   </section>
 

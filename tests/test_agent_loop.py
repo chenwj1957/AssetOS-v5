@@ -8,6 +8,7 @@ import pytest
 
 from src.agent import AgentLoop
 from src.core.config import Settings
+from src.llm.adapters.codex import AgenticResult
 
 
 def make_settings(tmp_path: Path) -> Settings:
@@ -42,8 +43,8 @@ class ScriptedLLM:
     def generate_text(self, prompt: str, provider: str = "codex") -> str:
         return "text"
 
-    def run_agentic(self, task: str, **kwargs: Any) -> str:
-        return f"AGENTIC:{task[:40]}"
+    def run_agentic(self, task: str, **kwargs: Any) -> AgenticResult:
+        return AgenticResult(text=f"AGENTIC:{task[:40]}", timeline=[])
 
 
 def seed_asset(settings: Settings, asset_id: str = "12_ocean_st") -> None:

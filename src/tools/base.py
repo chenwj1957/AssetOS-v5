@@ -13,7 +13,7 @@ from src.memory.search import MemoryIndex
 from src.memory.files.reader import FileReader
 from src.memory.files.registry import FileRegistry
 from src.memory.files.writer import FileWriter
-from src.memory.skills import SkillReader, SkillRegistry
+from src.memory.skills import SkillReader, SkillRegistry, SkillWriter
 
 
 @dataclass
@@ -26,10 +26,15 @@ class MemoryHub:
     file_writer: FileWriter
     skill_registry: SkillRegistry
     skill_reader: SkillReader
+    skill_writer: SkillWriter
     schema_registry: SchemaRegistry
     fact_reader: FactReader
     fact_writer: FactWriter
     memory_index: MemoryIndex
+
+
+def _always_enabled(_name: str) -> bool:
+    return True
 
 
 @dataclass
@@ -39,6 +44,7 @@ class ToolContext:
     llm_client: LLMClient
     memory: MemoryHub
     state: AgentState
+    skill_enabled: Callable[[str], bool] = _always_enabled
 
 
 @dataclass
@@ -49,10 +55,13 @@ class ToolResult:
     ``artifact`` is surfaced to the user at the end of the run.
     ``structured`` is stashed in state for downstream tools
     (e.g. invoice JSON consumed by build_docx).
+    ``timeline`` is an optional step-by-step trace (e.g. Codex agent
+    searches/navigation/citations) surfaced in the activity UI.
     """
     observation: str
     artifact: ArtifactResult | None = None
     structured: dict[str, Any] | None = None
+    timeline: list[dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)

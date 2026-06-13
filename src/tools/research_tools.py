@@ -117,10 +117,10 @@ def _fetch_url(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
 def _delegate_to_codex(ctx: ToolContext, task: str, **kwargs: Any) -> ToolResult:
     try:
-        report = ctx.llm_client.run_agentic(task, **kwargs)
+        result = ctx.llm_client.run_agentic(task, **kwargs)
     except LLMProviderError as exc:
         return ToolResult(observation=f"ERROR: Codex delegation failed: {exc}")
-    return ToolResult(observation=report)
+    return ToolResult(observation=result.text, timeline=result.timeline or None)
 
 
 def _browse_web(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 
+from src.agent.approval import ApprovalGate
 from src.agent.loop import AgentLoop
 from src.core.text import trim_to_budget
 from src.core.types import AgentState
@@ -30,8 +31,18 @@ class Session:
     exchanges: list[tuple[str, str]] = field(default_factory=list)
     active_asset: str | None = None
 
-    def ask(self, user_task: str, cancel_event: threading.Event | None = None) -> AgentState:
-        state = self.loop.run(user_task, session_context=self._render_context(), cancel_event=cancel_event)
+    def ask(
+        self,
+        user_task: str,
+        cancel_event: threading.Event | None = None,
+        approval_gate: ApprovalGate | None = None,
+    ) -> AgentState:
+        state = self.loop.run(
+            user_task,
+            session_context=self._render_context(),
+            cancel_event=cancel_event,
+            approval_gate=approval_gate,
+        )
         # Carry the active asset forward so follow-ups stay grounded.
         if state.selected_asset:
             self.active_asset = state.selected_asset

@@ -4,7 +4,7 @@
 /* View routing                                                        */
 /* ------------------------------------------------------------------ */
 
-const VIEWS = ["assistant", "assets", "workflows", "runs"];
+const VIEWS = ["assistant", "assets", "workflows", "runs", "capabilities"];
 
 function showView(name) {
   if (!VIEWS.includes(name)) name = "assistant";
@@ -17,6 +17,7 @@ function showView(name) {
   if (name === "assets") loadAssets();
   if (name === "workflows") loadWorkflows();
   if (name === "runs") loadRuns();
+  if (name === "capabilities") loadCapabilities();
 }
 
 window.addEventListener("hashchange", () => showView(location.hash.slice(1)));
@@ -67,6 +68,8 @@ const composerAssetSelect = document.getElementById("composer-asset");
 const composerFileInput = document.getElementById("composer-file-input");
 const attachmentsBar = document.getElementById("attachments");
 const quickActions = document.querySelectorAll(".quick-action");
+const activityPanel = document.getElementById("activity-panel");
+const activityResizer = document.getElementById("activity-resizer");
 const activityList = document.getElementById("activity-list");
 const activityLive = document.getElementById("activity-live");
 
@@ -75,6 +78,135 @@ function el(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+/* ------------------------------------------------------------------ */
+/* Minimal markdown renderer for agent answers                        */
+/* ------------------------------------------------------------------ */
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function renderInline(text) {
+  let html = escapeHtml(text);
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<em>$1</em>");
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  return html;
+}
+
+function isTableSeparator(line) {
+  return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line);
+}
+
+function splitTableRow(line) {
+  let trimmed = line.trim();
+  if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
+  if (trimmed.endsWith("|")) trimmed = trimmed.slice(0, -1);
+  return trimmed.split("|").map((cell) => cell.trim());
+}
+
+function renderMarkdown(text) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const html = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (line.trim() === "") {
+      i += 1;
+      continue;
+    }
+
+    // Fenced code block
+    if (line.trim().startsWith("```")) {
+      const code = [];
+      i += 1;
+      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+        code.push(lines[i]);
+        i += 1;
+      }
+      i += 1; // skip closing fence
+      html.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+      continue;
+    }
+
+    // Heading
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      const level = heading[1].length;
+      html.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+      i += 1;
+      continue;
+    }
+
+    // Table: header row followed by separator row
+    if (line.includes("|") && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      const headerCells = splitTableRow(line);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+        rows.push(splitTableRow(lines[i]));
+        i += 1;
+      }
+      let table = "<table><thead><tr>";
+      for (const cell of headerCells) table += `<th>${renderInline(cell)}</th>`;
+      table += "</tr></thead><tbody>";
+      for (const row of rows) {
+        table += "<tr>";
+        for (const cell of row) table += `<td>${renderInline(cell)}</td>`;
+        table += "</tr>";
+      }
+      table += "</tbody></table>";
+      html.push(table);
+      continue;
+    }
+
+    // Unordered list
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*]\s+/, ""));
+        i += 1;
+      }
+      html.push(`<ul>${items.map((item) => `<li>${renderInline(item)}</li>`).join("")}</ul>`);
+      continue;
+    }
+
+    // Ordered list
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+[.)]\s+/, ""));
+        i += 1;
+      }
+      html.push(`<ol>${items.map((item) => `<li>${renderInline(item)}</li>`).join("")}</ol>`);
+      continue;
+    }
+
+    // Paragraph: collect consecutive non-empty, non-special lines
+    const para = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !lines[i].trim().startsWith("```") &&
+      !/^(#{1,6})\s+/.test(lines[i]) &&
+      !/^\s*[-*]\s+/.test(lines[i]) &&
+      !/^\s*\d+[.)]\s+/.test(lines[i])
+    ) {
+      para.push(lines[i]);
+      i += 1;
+    }
+    html.push(`<p>${para.map(renderInline).join("<br>")}</p>`);
+  }
+
+  return html.join("\n");
 }
 
 function scrollToBottom() {
@@ -102,7 +234,73 @@ function resetActivity() {
   );
 }
 
+function showActivityPanel() {
+  if (!activityPanel.hidden) return;
+  activityPanel.hidden = false;
+  activityResizer.hidden = false;
+}
+
+function findActivityCard(step) {
+  return activityList.querySelector(
+    `.activity-step[data-iteration="${step.iteration}"][data-tool="${CSS.escape(step.tool)}"]`
+  );
+}
+
+const TIMELINE_LABELS = {
+  search: "Search",
+  navigation: "Navigate",
+  command: "Command",
+  message: "Message",
+  file_change: "Files changed",
+};
+
+function renderTimeline(timeline) {
+  const wrap = el("div", "activity-timeline");
+  wrap.appendChild(el("div", "panel-kicker", "Timeline"));
+  for (const step of timeline) {
+    const item = el("div", `activity-timeline-item activity-timeline-${step.kind}`);
+    item.appendChild(el("span", "activity-timeline-kind", TIMELINE_LABELS[step.kind] || step.kind));
+    if (step.kind === "search") {
+      item.appendChild(el("span", "activity-timeline-text", step.query));
+    } else if (step.kind === "navigation" || step.kind === "command") {
+      item.appendChild(el("code", "activity-timeline-text", step.command));
+      if (step.output) item.appendChild(el("pre", "activity-timeline-output", step.output));
+    } else if (step.kind === "message") {
+      item.appendChild(el("p", "activity-timeline-text", step.text));
+      if (step.citations && step.citations.length) {
+        const cites = el("div", "activity-timeline-citations");
+        for (const url of step.citations) {
+          const link = el("a", "activity-citation", url);
+          link.href = url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          cites.appendChild(link);
+        }
+        item.appendChild(cites);
+      }
+    } else if (step.kind === "file_change") {
+      item.appendChild(el("span", "activity-timeline-text", step.paths.join(", ")));
+    }
+    wrap.appendChild(item);
+  }
+  return wrap;
+}
+
+async function respondToApproval(approved, actions) {
+  actions.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+  try {
+    await fetch("/api/chat/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved }),
+    });
+  } catch (error) {
+    actions.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+  }
+}
+
 function handleStepEvent(step) {
+  showActivityPanel();
   const placeholder = activityList.querySelector(".activity-empty");
   if (placeholder) placeholder.remove();
 
@@ -120,18 +318,90 @@ function handleStepEvent(step) {
     if (argsText && argsText !== "{}") card.appendChild(el("p", "activity-args", argsText));
     activityList.appendChild(card);
   } else if (step.type === "observation") {
-    const card = activityList.querySelector(
-      `.activity-step[data-iteration="${step.iteration}"][data-tool="${CSS.escape(step.tool)}"]`
-    );
+    const card = findActivityCard(step);
+    if (step.timeline && step.timeline.length) {
+      (card || activityList).appendChild(renderTimeline(step.timeline));
+    }
     const details = el("details", "activity-observation" + (step.ok ? "" : " activity-observation-error"));
     details.appendChild(el("summary", "", `Result · ${step.chars} chars`));
     details.appendChild(el("pre", "activity-observation-text", step.text));
     (card || activityList).appendChild(details);
+  } else if (step.type === "approval_request") {
+    const card = findActivityCard(step) || activityList;
+    const wrap = el("div", "activity-approval");
+    wrap.appendChild(el("p", "activity-approval-note", "Requires your approval before it runs."));
+    const actions = el("div", "activity-approval-actions");
+    const approveBtn = el("button", "activity-approve-btn", "Approve");
+    const denyBtn = el("button", "activity-deny-btn", "Deny");
+    approveBtn.type = "button";
+    denyBtn.type = "button";
+    approveBtn.addEventListener("click", () => respondToApproval(true, actions));
+    denyBtn.addEventListener("click", () => respondToApproval(false, actions));
+    actions.appendChild(approveBtn);
+    actions.appendChild(denyBtn);
+    wrap.appendChild(actions);
+    card.appendChild(wrap);
+  } else if (step.type === "approval_result") {
+    const card = findActivityCard(step);
+    if (card) {
+      const wrap = card.querySelector(".activity-approval");
+      if (wrap) wrap.remove();
+      card.appendChild(
+        el("p", "activity-approval-result", step.approved ? "Approved — proceeding." : "Denied by user.")
+      );
+    }
   } else if (step.type === "status") {
     activityList.appendChild(el("div", "activity-status", step.text));
   }
   activityList.scrollTop = activityList.scrollHeight;
 }
+
+/* ------------------------------------------------------------------ */
+/* Activity panel resizing (width persisted across sessions)          */
+/* ------------------------------------------------------------------ */
+
+const ACTIVITY_WIDTH_KEY = "assetos.activityPanelWidth";
+const ACTIVITY_WIDTH_MIN = 240;
+
+function applyActivityWidth(width) {
+  activityPanel.style.flexBasis = `${width}px`;
+}
+
+const savedActivityWidth = parseInt(localStorage.getItem(ACTIVITY_WIDTH_KEY) || "", 10);
+if (!Number.isNaN(savedActivityWidth)) {
+  applyActivityWidth(savedActivityWidth);
+}
+
+(() => {
+  let dragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  activityResizer.addEventListener("mousedown", (event) => {
+    dragging = true;
+    startX = event.clientX;
+    startWidth = activityPanel.getBoundingClientRect().width;
+    activityResizer.classList.add("is-dragging");
+    document.body.style.userSelect = "none";
+    event.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (event) => {
+    if (!dragging) return;
+    const delta = startX - event.clientX;
+    const maxWidth = activityPanel.parentElement.getBoundingClientRect().width * 0.8;
+    const width = Math.min(Math.max(startWidth + delta, ACTIVITY_WIDTH_MIN), maxWidth);
+    applyActivityWidth(width);
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    activityResizer.classList.remove("is-dragging");
+    document.body.style.userSelect = "";
+    localStorage.setItem(ACTIVITY_WIDTH_KEY, String(Math.round(activityPanel.getBoundingClientRect().width)));
+  });
+})();
 
 /* ------------------------------------------------------------------ */
 /* Attachments: upload files and tag them to an asset                 */
@@ -327,7 +597,9 @@ async function sendMessage(message) {
       return;
     }
     if (event.type === "final") {
-      agentMsg.appendChild(el("div", "msg-answer", event.answer));
+      const answerNode = el("div", "msg-answer");
+      answerNode.innerHTML = renderMarkdown(event.answer || "");
+      agentMsg.appendChild(answerNode);
       if (event.artifacts && event.artifacts.length) {
         const artifacts = el("div", "msg-artifacts");
         for (const artifact of event.artifacts) {
@@ -561,32 +833,192 @@ workflowForm.addEventListener("submit", async (event) => {
 
 const runsList = document.getElementById("runs-list");
 const runDetail = document.getElementById("run-detail");
+const runsResizer = document.getElementById("runs-resizer");
+
+function renderRunsPanelEmpty() {
+  runDetail.replaceChildren();
+  runDetail.appendChild(el("p", "view-lede panel-empty", "Select a run from the list to see its details here."));
+}
 
 async function loadRuns() {
-  runDetail.hidden = true;
   const response = await fetch("/api/runs");
   const { runs } = await response.json();
   runsList.replaceChildren();
+  renderRunsPanelEmpty();
   if (!runs.length) {
     runsList.appendChild(el("p", "view-lede", "No runs yet. Every assistant or scheduled run will be journaled here."));
     return;
   }
+  let activeRow = null;
   for (const run of runs) {
     const row = el("button", "run-row");
     row.appendChild(el("span", "run-name", `${run.asset || "general"} \u00b7 ${run.name}`));
     row.appendChild(el("span", "run-task", run.task));
     row.addEventListener("click", async () => {
+      if (activeRow) activeRow.classList.remove("active");
+      activeRow = row;
+      row.classList.add("active");
       const detailResponse = await fetch(`/api/runs/${encodeURIComponent(run.asset)}/${encodeURIComponent(run.name)}`);
       const payload = await detailResponse.json();
       runDetail.replaceChildren();
-      const view = el("div", "run-view", payload.content);
-      runDetail.appendChild(view);
-      runDetail.hidden = false;
-      runDetail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      runDetail.appendChild(el("div", "panel-kicker", "Run"));
+      runDetail.appendChild(el("h3", "panel-title", run.name));
+      runDetail.appendChild(el("pre", "run-view", payload.content));
     });
     runsList.appendChild(row);
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Runs panel resizing (width persisted across sessions)              */
+/* ------------------------------------------------------------------ */
+
+const RUNS_WIDTH_KEY = "assetos.runsListWidth";
+const RUNS_WIDTH_MIN = 200;
+
+function applyRunsWidth(width) {
+  runsList.style.flexBasis = `${width}px`;
+}
+
+const savedRunsWidth = parseInt(localStorage.getItem(RUNS_WIDTH_KEY) || "", 10);
+if (!Number.isNaN(savedRunsWidth)) {
+  applyRunsWidth(savedRunsWidth);
+}
+
+(() => {
+  let dragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  runsResizer.addEventListener("mousedown", (event) => {
+    dragging = true;
+    startX = event.clientX;
+    startWidth = runsList.getBoundingClientRect().width;
+    runsResizer.classList.add("is-dragging");
+    document.body.style.userSelect = "none";
+    event.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (event) => {
+    if (!dragging) return;
+    const delta = event.clientX - startX;
+    const maxWidth = runsList.parentElement.getBoundingClientRect().width * 0.7;
+    const width = Math.min(Math.max(startWidth + delta, RUNS_WIDTH_MIN), maxWidth);
+    applyRunsWidth(width);
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    runsResizer.classList.remove("is-dragging");
+    document.body.style.userSelect = "";
+    localStorage.setItem(RUNS_WIDTH_KEY, String(Math.round(runsList.getBoundingClientRect().width)));
+  });
+})();
+
+/* ------------------------------------------------------------------ */
+/* Capabilities                                                        */
+/* ------------------------------------------------------------------ */
+
+const capTabs = document.querySelectorAll(".cap-tab");
+const capPanels = {
+  skills: document.getElementById("cap-panel-skills"),
+  tools: document.getElementById("cap-panel-tools"),
+};
+const skillsList = document.getElementById("skills-list");
+const toolsList = document.getElementById("tools-list");
+const skillForm = document.getElementById("skill-form");
+
+capTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    capTabs.forEach((t) => t.classList.toggle("active", t === tab));
+    for (const [name, panel] of Object.entries(capPanels)) {
+      panel.hidden = name !== tab.dataset.tab;
+    }
+  });
+});
+
+function capToggle(checked, onChange) {
+  const label = el("label", "cap-toggle");
+  const input = el("input");
+  input.type = "checkbox";
+  input.checked = checked;
+  input.addEventListener("change", () => onChange(input.checked));
+  label.appendChild(input);
+  label.appendChild(el("span", "cap-toggle-track"));
+  return label;
+}
+
+async function loadCapabilities() {
+  const response = await fetch("/api/capabilities");
+  const { tools, skills } = await response.json();
+
+  skillsList.replaceChildren();
+  if (!skills.length) {
+    skillsList.appendChild(el("p", "view-lede", "No skills found yet."));
+  }
+  for (const skill of skills) {
+    const row = el("div", "cap-row");
+    const body = el("div", "cap-row-body");
+    body.appendChild(el("div", "cap-row-name", skill.name));
+    if (skill.summary) body.appendChild(el("p", "cap-row-desc", skill.summary));
+    row.appendChild(body);
+    row.appendChild(
+      capToggle(skill.enabled, async (enabled) => {
+        await fetch(`/api/capabilities/skills/${encodeURIComponent(skill.name)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        });
+      })
+    );
+    skillsList.appendChild(row);
+  }
+
+  toolsList.replaceChildren();
+  if (!tools.length) {
+    toolsList.appendChild(el("p", "view-lede", "No tools found."));
+  }
+  for (const tool of tools) {
+    const row = el("div", "cap-row");
+    const body = el("div", "cap-row-body");
+    const nameLine = el("div", "cap-row-name", tool.name);
+    if (tool.requires_approval) nameLine.appendChild(el("span", "cap-tag", "Approval"));
+    body.appendChild(nameLine);
+    if (tool.description) body.appendChild(el("p", "cap-row-desc", tool.description));
+    if (tool.args && Object.keys(tool.args).length) {
+      body.appendChild(el("p", "cap-row-args", `Args: ${Object.keys(tool.args).join(", ")}`));
+    }
+    row.appendChild(body);
+    row.appendChild(
+      capToggle(tool.enabled, async (enabled) => {
+        await fetch(`/api/capabilities/tools/${encodeURIComponent(tool.name)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        });
+      })
+    );
+    toolsList.appendChild(row);
+  }
+}
+
+skillForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = document.getElementById("skill-name").value.trim();
+  const summary = document.getElementById("skill-summary").value.trim();
+  const content = document.getElementById("skill-content").value.trim();
+  if (!name || !content) return;
+  const response = await fetch("/api/skills", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, content, summary }),
+  });
+  if (response.ok) {
+    skillForm.reset();
+    loadCapabilities();
+  }
+});
 
 /* ------------------------------------------------------------------ */
 

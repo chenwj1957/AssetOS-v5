@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -89,8 +91,30 @@ def test_gated_switch_controls_approval_policy(tmp_path: Path) -> None:
     def observations(events: list[dict]) -> list[dict]:
         return [e["step"] for e in events if e["type"] == "step" and e["step"]["type"] == "observation"]
 
+    def steps(events: list[dict]) -> list[dict]:
+        return [e["step"] for e in events if e["type"] == "step"]
+
     client = make_client(tmp_path, gated())
-    events = parse_sse(client.post("/api/chat", json={"message": "tidy"}).text)
+
+    result: dict[str, list[dict]] = {}
+
+    def run_chat() -> None:
+        result["events"] = parse_sse(client.post("/api/chat", json={"message": "tidy"}).text)
+
+    thread = threading.Thread(target=run_chat)
+    thread.start()
+    deadline = time.time() + 5
+    while client.app.state.active_approval_gate is None and time.time() < deadline:
+        time.sleep(0.02)
+    assert client.app.state.active_approval_gate is not None
+
+    # With the global switch off, a gated tool call pauses for human approval
+    # instead of being auto-denied; deny it from the "UI" side.
+    client.post("/api/chat/approve", json={"approved": False})
+    thread.join(timeout=5)
+
+    events = result["events"]
+    assert any(step["type"] == "approval_request" and step["tool"] == "codex_agent" for step in steps(events))
     assert any("DENIED" in step["text"] for step in observations(events))
 
     client.post("/api/settings", json={"allow_gated": True})

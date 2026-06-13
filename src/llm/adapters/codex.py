@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from src.core.errors import LLMProviderError, RoutingError
+
+TIMELINE_PREVIEW_CHARS = 400
+_URL_RE = re.compile(r"https?://\S+")
 
 
 @dataclass
@@ -15,6 +19,89 @@ class CodexResult:
     stdout: str
     stderr: str
     timed_out: bool = False
+
+
+@dataclass
+class AgenticResult:
+    """Outcome of a Codex agentic (computer-use) delegation.
+
+    ``text`` is the agent's final reply, fed back to the controller as the
+    tool observation. ``timeline`` is the step-by-step trace (searches,
+    commands/navigation, messages with citations) parsed from Codex's
+    ``--json`` event stream, for display in the UI. Empty when the
+    underlying Codex CLI didn't emit JSONL events (older CLI versions).
+    """
+
+    text: str
+    timeline: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _timeline_entry(item: dict[str, Any]) -> dict[str, Any] | None:
+    item_type = item.get("type")
+    if item_type == "web_search":
+        return {"kind": "search", "query": str(item.get("query", ""))}
+    if item_type == "command_execution":
+        command = str(item.get("command", ""))
+        is_navigation = any(token in command for token in ("curl", "wget", "http://", "https://"))
+        entry: dict[str, Any] = {"kind": "navigation" if is_navigation else "command", "command": command}
+        output = str(item.get("aggregated_output", "")).strip()
+        if output:
+            entry["output"] = output[:TIMELINE_PREVIEW_CHARS]
+        return entry
+    if item_type == "agent_message":
+        text = str(item.get("text", "")).strip()
+        if not text:
+            return None
+        entry = {"kind": "message", "text": text[:TIMELINE_PREVIEW_CHARS]}
+        citations = sorted(set(_URL_RE.findall(text)))
+        if citations:
+            entry["citations"] = citations
+        return entry
+    if item_type == "file_change":
+        paths = [c.get("path") for c in item.get("changes", []) if isinstance(c, dict) and c.get("path")]
+        if paths:
+            return {"kind": "file_change", "paths": paths}
+    return None
+
+
+def _parse_agentic_result(stdout: str) -> AgenticResult:
+    """Parse Codex's ``exec --json`` JSONL event stream into a timeline.
+
+    Falls back to treating the raw output as the final message if it isn't
+    JSONL (older Codex CLI without ``--json`` support, or a plain-text
+    response).
+    """
+    timeline: list[dict[str, Any]] = []
+    messages: list[str] = []
+    saw_json_event = False
+
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "item.completed":
+            continue
+        item = event.get("item")
+        if not isinstance(item, dict):
+            continue
+        saw_json_event = True
+        entry = _timeline_entry(item)
+        if entry is not None:
+            timeline.append(entry)
+        if item.get("type") == "agent_message":
+            text = str(item.get("text", "")).strip()
+            if text:
+                messages.append(text)
+
+    if not saw_json_event:
+        return AgenticResult(text=stdout.strip(), timeline=[])
+
+    final_text = "\n\n".join(messages).strip() or stdout.strip()
+    return AgenticResult(text=final_text, timeline=timeline)
 
 
 class AdapterCodex:
@@ -67,24 +154,29 @@ class AdapterCodex:
         enable_search: bool = True,
         working_dir: str | None = None,
         timeout_seconds: int | None = None,
-    ) -> str:
-        """Hand a sub-task to the Codex agent and return its final message.
+    ) -> AgenticResult:
+        """Hand a sub-task to the Codex agent and return its final message
+        plus a step-by-step timeline (searches, navigation, citations).
 
         Codex runs its own multi-step loop (shell commands, file edits,
         web search/fetch) inside its sandbox. AssetOS treats the whole
-        run as a single tool observation.
+        run as a single tool observation, with the timeline surfaced
+        separately for the activity UI.
         """
         # `--search` is a global flag and must precede the `exec` subcommand.
         args = []
         if enable_search:
             # `--search` enables Codex's built-in web search/browsing tool.
             args.append("--search")
-        args.extend(["exec", "--skip-git-repo-check", "--sandbox", sandbox])
+        # `--json` streams structured step events (searches, commands,
+        # messages) as JSONL so the UI can render a clean timeline.
+        args.extend(["exec", "--json", "--skip-git-repo-check", "--sandbox", sandbox])
         if working_dir:
             args.extend(["--cd", working_dir])
         args.append("-")
         result = self._run(task, args, timeout_seconds or self.agentic_timeout_seconds)
-        return self._unwrap(result, "Codex agent")
+        raw = self._unwrap(result, "Codex agent")
+        return _parse_agentic_result(raw)
 
     # ------------------------------------------------------------------
 
