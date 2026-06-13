@@ -44,15 +44,30 @@
         </div>
       </div>
     </div>
-    <div class="attachments" id="attachments" hidden></div>
     <form class="composer" id="composer">
-      <input type="file" id="composer-file-input" multiple hidden />
-      <button type="button" id="composer-attach" class="composer-icon-btn" title="Attach files" aria-label="Attach files">+</button>
-      <select id="composer-asset" class="composer-asset" aria-label="Tag attachments to an asset">
-        <option value="">No asset</option>
-      </select>
-      <textarea id="composer-input" rows="1" placeholder="e.g. How has the rent moved at 12 Ocean St?" aria-label="Message the agent"></textarea>
-      <button type="submit" id="composer-send">Send</button>
+      <div class="composer-panel">
+        <div class="attachments composer-attachments" id="attachments" hidden></div>
+        <textarea id="composer-input" rows="1" placeholder="Message AssetOS" aria-label="Message the agent"></textarea>
+        <div class="composer-toolbar" aria-label="Message controls">
+          <div class="composer-actions">
+            <input type="file" id="composer-file-input" multiple accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv,.xlsx" hidden />
+            <button type="button" id="composer-attach" class="composer-icon-btn" title="Upload files or photos" aria-label="Upload files or photos">
+              <span aria-hidden="true">+</span>
+              <span>Upload</span>
+            </button>
+            <label class="composer-asset-wrap" for="composer-asset">
+              <span class="composer-asset-label">Asset</span>
+              <select id="composer-asset" class="composer-asset" aria-label="Select an asset for uploads">
+                <option value="">No asset</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit" id="composer-send" class="composer-send" aria-label="Send message">
+            <span aria-hidden="true">↑</span>
+            <span class="send-label">Send</span>
+          </button>
+        </div>
+      </div>
     </form>
   </section>
 
