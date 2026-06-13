@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.core.config import Settings
+from src.core.errors import UnsafeMemoryPathError
 
 
 class AssetRegistry:
@@ -16,6 +17,13 @@ class AssetRegistry:
         return sorted(path.name for path in self.assets_dir.iterdir() if path.is_dir())
 
     def resolve_asset_dir(self, asset_id: str) -> Path:
+        # asset_id is the root of every fact/file/search path and may arrive
+        # from agent tool args, so it must be a single path component: no
+        # separators, no "..", not absolute.
+        candidate = Path(asset_id)
+        parts = candidate.parts
+        if not asset_id or len(parts) != 1 or parts[0] in {".", ".."} or candidate.is_absolute():
+            raise UnsafeMemoryPathError(f"Invalid asset id: {asset_id!r}")
         return self.assets_dir / asset_id
 
     def list_asset_profiles(self) -> dict[str, str]:

@@ -57,78 +57,92 @@
 
   <!-- Assistant -->
   <section class="view" id="view-assistant">
-    <div class="chat-scroll" id="chat-scroll">
-      <div class="chat-column" id="chat-column">
-        <div class="chat-empty" id="chat-empty">
-          <div class="hero-kicker"><span class="status-dot"></span> Portfolio intelligence workspace</div>
-          <h1>What needs attention<br />across your portfolio?</h1>
-          <p class="hero-copy">Ask AssetOS to investigate records, compare facts, prepare documents, or review the portfolio. Every answer is grounded in memory and every action is journaled.</p>
+    <div class="assistant-layout">
+      <div class="assistant-main">
+        <div class="chat-scroll" id="chat-scroll">
+          <div class="chat-column" id="chat-column">
+            <div class="chat-empty" id="chat-empty">
+              <div class="hero-kicker"><span class="status-dot"></span> Portfolio intelligence workspace</div>
+              <h1>What needs attention<br />across your portfolio?</h1>
+              <p class="hero-copy">Ask AssetOS to investigate records, compare facts, prepare documents, or review the portfolio. Every answer is grounded in memory and every action is journaled.</p>
 
-          <div class="quick-actions" aria-label="Suggested questions">
-            <button type="button" class="quick-action" data-prompt="Review all assets for stale facts, upcoming lease expiries, and anything requiring attention.">
-              <span class="quick-icon">01</span>
-              <span><strong>Portfolio health check</strong><small>Surface stale facts and upcoming dates</small></span>
-            </button>
-            <button type="button" class="quick-action" data-prompt="Compare current weekly rent across all assets and identify any records that need a market review.">
-              <span class="quick-icon">02</span>
-              <span><strong>Review rent position</strong><small>Compare rents and flag gaps</small></span>
-            </button>
-            <button type="button" class="quick-action" data-prompt="Find leases expiring within the next 90 days and recommend the next action for each asset.">
-              <span class="quick-icon">03</span>
-              <span><strong>Lease expiry watch</strong><small>Find deadlines in the next 90 days</small></span>
-            </button>
-            <button type="button" class="quick-action" data-prompt="Help me prepare a property document. First ask which asset and document type I need.">
-              <span class="quick-icon">04</span>
-              <span><strong>Prepare a document</strong><small>Draft an invoice, note, or report</small></span>
-            </button>
-          </div>
+              <div class="quick-actions" aria-label="Suggested questions">
+                <button type="button" class="quick-action" data-prompt="Review all assets for stale facts, upcoming lease expiries, and anything requiring attention.">
+                  <span class="quick-icon">01</span>
+                  <span><strong>Portfolio health check</strong><small>Surface stale facts and upcoming dates</small></span>
+                </button>
+                <button type="button" class="quick-action" data-prompt="Compare current weekly rent across all assets and identify any records that need a market review.">
+                  <span class="quick-icon">02</span>
+                  <span><strong>Review rent position</strong><small>Compare rents and flag gaps</small></span>
+                </button>
+                <button type="button" class="quick-action" data-prompt="Find leases expiring within the next 90 days and recommend the next action for each asset.">
+                  <span class="quick-icon">03</span>
+                  <span><strong>Lease expiry watch</strong><small>Find deadlines in the next 90 days</small></span>
+                </button>
+                <button type="button" class="quick-action" data-prompt="Help me prepare a property document. First ask which asset and document type I need.">
+                  <span class="quick-icon">04</span>
+                  <span><strong>Prepare a document</strong><small>Draft an invoice, note, or report</small></span>
+                </button>
+              </div>
 
-          <div class="trust-row">
-            <span>Memory grounded</span>
-            <span>Source aware</span>
-            <span>Audit journal on</span>
+              <div class="trust-row">
+                <span>Memory grounded</span>
+                <span>Source aware</span>
+                <span>Audit journal on</span>
+              </div>
+            </div>
           </div>
+        </div>
+        <div class="composer-dock">
+          <div class="attachments" id="attachments" hidden></div>
+          <form class="composer" id="composer">
+            <input type="file" id="composer-file-input" multiple accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv,.xlsx" hidden />
+            <textarea id="composer-input" rows="1" placeholder="Ask about an asset, a lease, a payment, or the whole portfolio..." aria-label="Message the agent"></textarea>
+            <div class="composer-tools">
+              <div class="composer-tools-left">
+                <button type="button" id="composer-attach" class="composer-icon-btn" title="Attach files" aria-label="Attach files">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 12.5 14 7a3 3 0 0 1 4.2 4.2l-7.1 7.1a5 5 0 0 1-7.1-7.1l7.4-7.4"/></svg>
+                  <span>Attach</span>
+                </button>
+                <label class="asset-control">
+                  <span>Context</span>
+                  <select id="composer-asset" class="composer-asset" aria-label="Tag attachments to an asset">
+                    <option value="">Portfolio-wide</option>
+                  </select>
+                </label>
+              </div>
+              <div class="composer-tools-right">
+                <span class="composer-hint">Enter to send</span>
+                <button type="submit" id="composer-send">
+                  <span id="composer-send-label">Send</span>
+                  <svg id="composer-send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-5-7-2Z"/></svg>
+                  <svg id="composer-stop-icon" viewBox="0 0 24 24" aria-hidden="true" hidden><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                </button>
+              </div>
+            </div>
+          </form>
+          <p class="composer-note">AssetOS may research and draft. Verify material decisions before acting.</p>
         </div>
       </div>
-    </div>
-    <div class="composer-dock">
-      <div class="attachments" id="attachments" hidden></div>
-      <form class="composer" id="composer">
-        <input type="file" id="composer-file-input" multiple accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv,.xlsx" hidden />
-        <textarea id="composer-input" rows="1" placeholder="Ask about an asset, a lease, a payment, or the whole portfolio..." aria-label="Message the agent"></textarea>
-        <div class="composer-tools">
-          <div class="composer-tools-left">
-            <button type="button" id="composer-attach" class="composer-icon-btn" title="Attach files" aria-label="Attach files">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 12.5 14 7a3 3 0 0 1 4.2 4.2l-7.1 7.1a5 5 0 0 1-7.1-7.1l7.4-7.4"/></svg>
-              <span>Attach</span>
-            </button>
-            <label class="asset-control">
-              <span>Context</span>
-              <select id="composer-asset" class="composer-asset" aria-label="Tag attachments to an asset">
-                <option value="">Portfolio-wide</option>
-              </select>
-            </label>
-          </div>
-          <div class="composer-tools-right">
-            <span class="composer-hint">Enter to send</span>
-            <button type="submit" id="composer-send">
-              <span>Send</span>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-5-7-2Z"/></svg>
-            </button>
-          </div>
+      <aside class="activity-panel" id="activity-panel">
+        <div class="activity-panel-head">
+          <span class="panel-kicker">Agent activity</span>
+          <span class="activity-live" id="activity-live" hidden><span class="status-dot"></span> Running</span>
         </div>
-      </form>
-      <p class="composer-note">AssetOS may research and draft. Verify material decisions before acting.</p>
+        <div class="activity-list" id="activity-list">
+          <p class="activity-empty">Tool calls and skill lookups for the current run will appear here.</p>
+        </div>
+      </aside>
     </div>
   </section>
 
   <!-- Assets -->
   <section class="view" id="view-assets" hidden>
-    <div class="page-column">
+    <div class="page-column" id="assets-page">
       <h1 class="view-title">Asset vault</h1>
       <div id="assets-list" class="asset-grid"></div>
-      <div id="asset-detail" hidden></div>
     </div>
+    <div class="asset-detail-page" id="asset-detail" hidden></div>
   </section>
 
   <!-- Workflows -->

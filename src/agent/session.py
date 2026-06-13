@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 
 from src.agent.loop import AgentLoop
@@ -29,8 +30,8 @@ class Session:
     exchanges: list[tuple[str, str]] = field(default_factory=list)
     active_asset: str | None = None
 
-    def ask(self, user_task: str) -> AgentState:
-        state = self.loop.run(user_task, session_context=self._render_context())
+    def ask(self, user_task: str, cancel_event: threading.Event | None = None) -> AgentState:
+        state = self.loop.run(user_task, session_context=self._render_context(), cancel_event=cancel_event)
         # Carry the active asset forward so follow-ups stay grounded.
         if state.selected_asset:
             self.active_asset = state.selected_asset

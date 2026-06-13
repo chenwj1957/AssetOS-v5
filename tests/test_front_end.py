@@ -34,7 +34,10 @@ def test_chat_streams_events_then_final_answer(tmp_path: Path) -> None:
     response = client.post("/api/chat", json={"message": "What is the rent?"})
     assert response.status_code == 200
     events = parse_sse(response.text)
-    assert any(e["type"] == "event" and "read_memory" in e["text"] for e in events)
+    assert any(
+        e["type"] == "step" and e["step"]["type"] == "tool_call" and e["step"]["tool"] == "read_memory"
+        for e in events
+    )
     final = [e for e in events if e["type"] == "final"]
     assert final and final[0]["answer"] == "Weekly rent is $1000."
     assert final[0]["asset"] == "12_ocean_st"
@@ -83,16 +86,19 @@ def test_gated_switch_controls_approval_policy(tmp_path: Path) -> None:
             ]
         )
 
+    def observations(events: list[dict]) -> list[dict]:
+        return [e["step"] for e in events if e["type"] == "step" and e["step"]["type"] == "observation"]
+
     client = make_client(tmp_path, gated())
     events = parse_sse(client.post("/api/chat", json={"message": "tidy"}).text)
-    assert any("DENIED" in e.get("text", "") for e in events if e["type"] == "event")
+    assert any("DENIED" in step["text"] for step in observations(events))
 
     client.post("/api/settings", json={"allow_gated": True})
     assert client.get("/api/settings").json()["allow_gated"] is True
     # Re-arm the scripted LLM for a second run on the same app/session.
     client.app.state.session.loop.llm_client = gated()
     events = parse_sse(client.post("/api/chat", json={"message": "tidy again"}).text)
-    assert not any("DENIED" in e.get("text", "") for e in events)
+    assert not any("DENIED" in step["text"] for step in observations(events))
 
 
 def test_workflows_and_runs_endpoints(tmp_path: Path) -> None:

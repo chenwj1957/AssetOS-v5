@@ -92,6 +92,23 @@ def test_loop_recovers_from_unknown_tool_and_bad_args(tmp_path: Path) -> None:
     assert state.answer == "recovered"
 
 
+def test_loop_stops_when_cancel_event_is_set(tmp_path: Path) -> None:
+    import threading
+
+    settings = make_settings(tmp_path)
+    llm = ScriptedLLM(
+        [{"thought": "loop", "action": {"tool": "list_skills", "args": {}}}] * 10
+    )
+    cancel_event = threading.Event()
+    cancel_event.set()
+    state = AgentLoop(settings=settings, llm_client=llm, emit=lambda _: None).run(
+        "stop me", cancel_event=cancel_event
+    )
+    assert state.turns == []
+    assert "stopped" in state.answer.lower()
+    assert llm.prompts == []  # no LLM call was made once cancelled
+
+
 def test_loop_hits_iteration_limit_gracefully(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     llm = ScriptedLLM(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from src.core.errors import RoutingError
+from src.core.errors import RoutingError, UnsafeMemoryPathError
 from src.memory.facts import SchemaError
 from src.tools.base import ToolContext, ToolResult, ToolSpec, catches, require_str
 
@@ -44,6 +44,7 @@ def _extraction_prompt(memory_text: str, schema_text: str) -> str:
     )
 
 
+@catches(UnsafeMemoryPathError)
 def _extract_facts(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     asset_id = require_str(args, "asset_id")
     files = ctx.memory.file_registry.list_files_by_asset(asset_id)
@@ -76,11 +77,13 @@ def _extract_facts(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     return ToolResult(observation="\n\n".join(parts))
 
 
+@catches(UnsafeMemoryPathError)
 def _query_facts(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     asset_id = require_str(args, "asset_id")
     return ToolResult(observation=ctx.memory.fact_reader.render(asset_id))
 
 
+@catches(UnsafeMemoryPathError)
 def _fact_history(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     asset_id = require_str(args, "asset_id")
     field = require_str(args, "field")

@@ -37,7 +37,7 @@ class ArtifactResult:
 @dataclass(frozen=True)
 class EventLog:
     timestamp: datetime
-    event_details: str
+    event_details: dict[str, Any]
 
 
 @dataclass

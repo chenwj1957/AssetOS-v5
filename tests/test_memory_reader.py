@@ -155,6 +155,16 @@ def test_file_reader_rejects_parent_directory_traversal(tmp_path: Path) -> None:
         FileReader(make_file_registry(tmp_path)).read_file("asset #1", "../secret.md")
 
 
+def test_file_reader_rejects_asset_id_traversal(tmp_path: Path) -> None:
+    (tmp_path / "assets" / "asset #1").mkdir(parents=True)
+    (tmp_path / "secret.md").write_text("top secret", encoding="utf-8")
+
+    registry = make_file_registry(tmp_path)
+    for malicious_asset_id in ("..", "../secret", "../", "/etc", "a/b"):
+        with pytest.raises(UnsafeMemoryPathError):
+            FileReader(registry).read_file(malicious_asset_id, "secret.md")
+
+
 def test_file_reader_enforces_file_size_limit(tmp_path: Path) -> None:
     asset_dir = tmp_path / "assets" / "asset #1"
     asset_dir.mkdir(parents=True)

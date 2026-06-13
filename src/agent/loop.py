@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import threading
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -23,8 +23,8 @@ from src.tools.base import MemoryHub, ToolContext, ToolSpec
 from src.tools.registry import list_tools
 
 
-def _print_emit(text: str) -> None:
-    print(f"\n{text}", flush=True)
+def _print_emit(event: dict[str, Any]) -> None:
+    print(f"\n{event}", flush=True)
 
 
 def _deny_all(tool_name: str, args: dict[str, Any]) -> bool:
@@ -46,7 +46,7 @@ class AgentLoop:
         settings: Settings | None = None,
         llm_client: LLMClient | None = None,
         tools: list[ToolSpec] | None = None,
-        emit: Callable[[str], None] | None = None,
+        emit: Callable[[dict[str, Any]], None] | None = None,
         approval_policy: Callable[[str, dict[str, Any]], bool] | None = None,
     ) -> None:
         self.settings = settings or load_settings()
@@ -80,7 +80,12 @@ class AgentLoop:
             memory_index=memory_index,
         )
 
-    def run(self, user_task: str, session_context: str = "") -> AgentState:
+    def run(
+        self,
+        user_task: str,
+        session_context: str = "",
+        cancel_event: threading.Event | None = None,
+    ) -> AgentState:
         if not user_task.strip():
             raise PMIntelligenceError("User task cannot be empty.")
         state = AgentState(user_task=user_task.strip(), session_context=session_context)
@@ -88,30 +93,47 @@ class AgentLoop:
         base_prompt = system_prompt(self.tools, self.settings.max_iterations)
 
         for iteration in range(1, self.settings.max_iterations + 1):
+            if cancel_event is not None and cancel_event.is_set():
+                state.answer = state.answer or "Run stopped at your request before finishing."
+                self._log(state, {"type": "status", "iteration": iteration, "text": "Run stopped by user."})
+                return self._finish(state)
+
             decision = self._next_decision(base_prompt, state)
             thought = str(decision.get("thought", "")).strip()
 
             if "final_answer" in decision:
                 state.answer = str(decision["final_answer"])
-                self._log(state, f"[{iteration}] final answer ready.")
+                self._log(state, {"type": "status", "iteration": iteration, "text": "Final answer ready."})
                 return self._finish(state)
 
             action = decision.get("action")
             if not isinstance(action, dict) or not isinstance(action.get("tool"), str):
                 observation = "ERROR: response must contain either final_answer or action.tool. Re-read the format rules."
                 state.turns.append(AgentTurn(iteration=iteration, thought=thought, observation=observation))
-                self._log(state, f"[{iteration}] malformed decision, asked agent to retry.")
+                self._log(state, {"type": "status", "iteration": iteration, "text": "Malformed decision, asked agent to retry."})
                 continue
 
             tool_name = action["tool"]
             args = action.get("args") if isinstance(action.get("args"), dict) else {}
             turn = AgentTurn(iteration=iteration, thought=thought, tool=tool_name, args=args)
             state.turns.append(turn)
-            self._log(state, f"[{iteration}] {tool_name}({self._short(args)})\n  thought: {thought}")
+            self._log(state, {
+                "type": "tool_call",
+                "iteration": iteration,
+                "tool": tool_name,
+                "args": args,
+                "thought": thought,
+            })
 
             turn.observation = self._execute(ctx, tool_name, args)
-            excerpt = " ".join(turn.observation.split())[:140]
-            self._log(state, f"[{iteration}] observation ({len(turn.observation)} chars): {excerpt}")
+            self._log(state, {
+                "type": "observation",
+                "iteration": iteration,
+                "tool": tool_name,
+                "text": turn.observation,
+                "chars": len(turn.observation),
+                "ok": not turn.observation.startswith(("ERROR", "DENIED")),
+            })
 
         state.answer = state.answer or (
             "I reached the iteration limit before finishing. Progress so far:\n"
@@ -127,9 +149,9 @@ class AgentLoop:
         try:
             state.journal_path = write_run_journal(state, self.settings)
             if state.journal_path is not None:
-                self._log(state, f"Run journaled to {state.journal_path}")
+                self._log(state, {"type": "status", "text": f"Run journaled to {state.journal_path}"})
         except OSError as exc:
-            self._log(state, f"WARNING: run journal could not be written: {exc}")
+            self._log(state, {"type": "status", "text": f"WARNING: run journal could not be written: {exc}"})
         return state
 
     # ------------------------------------------------------------------
@@ -162,11 +184,6 @@ class AgentLoop:
             ctx.state.artifacts.append(result.artifact)
         return truncate_text(result.observation, self.settings.observation_max_chars, "\n...[observation truncated]")
 
-    def _log(self, state: AgentState, text: str) -> None:
-        state.event_log.append(EventLog(timestamp=datetime.now(), event_details=text))
-        self.emit(text)
-
-    @staticmethod
-    def _short(args: dict[str, Any]) -> str:
-        rendered = json.dumps(args, default=str)
-        return rendered if len(rendered) <= 160 else rendered[:160] + "..."
+    def _log(self, state: AgentState, event: dict[str, Any]) -> None:
+        state.event_log.append(EventLog(timestamp=datetime.now(), event_details=event))
+        self.emit(event)

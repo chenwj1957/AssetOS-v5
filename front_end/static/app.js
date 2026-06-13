@@ -59,11 +59,16 @@ const chatScroll = document.getElementById("chat-scroll");
 const composer = document.getElementById("composer");
 const composerInput = document.getElementById("composer-input");
 const composerSend = document.getElementById("composer-send");
+const composerSendLabel = document.getElementById("composer-send-label");
+const composerSendIcon = document.getElementById("composer-send-icon");
+const composerStopIcon = document.getElementById("composer-stop-icon");
 const composerAttach = document.getElementById("composer-attach");
 const composerAssetSelect = document.getElementById("composer-asset");
 const composerFileInput = document.getElementById("composer-file-input");
 const attachmentsBar = document.getElementById("attachments");
 const quickActions = document.querySelectorAll(".quick-action");
+const activityList = document.getElementById("activity-list");
+const activityLive = document.getElementById("activity-live");
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -74,6 +79,58 @@ function el(tag, className, text) {
 
 function scrollToBottom() {
   chatScroll.scrollTop = chatScroll.scrollHeight;
+}
+
+/* ------------------------------------------------------------------ */
+/* Activity panel: structured tool/skill call timeline (right panel)  */
+/* ------------------------------------------------------------------ */
+
+const SKILL_TOOLS = new Set(["list_skills", "load_skill"]);
+const ICON_SKILL = '<path d="M4 5.5h7v13H4zM13 5.5h7v13h-7z"/><path d="M7.5 9h0M16.5 9h0"/>';
+const ICON_TOOL = '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2 2-2-1-1-2z"/>';
+
+function activityIcon(tool) {
+  const isSkill = SKILL_TOOLS.has(tool);
+  const span = el("span", "activity-icon" + (isSkill ? " activity-icon-skill" : ""));
+  span.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${isSkill ? ICON_SKILL : ICON_TOOL}</svg>`;
+  return span;
+}
+
+function resetActivity() {
+  activityList.replaceChildren(
+    el("p", "activity-empty", "Tool calls and skill lookups for the current run will appear here.")
+  );
+}
+
+function handleStepEvent(step) {
+  const placeholder = activityList.querySelector(".activity-empty");
+  if (placeholder) placeholder.remove();
+
+  if (step.type === "tool_call") {
+    const card = el("div", "activity-step");
+    card.dataset.iteration = String(step.iteration);
+    card.dataset.tool = step.tool;
+    const head = el("div", "activity-step-head");
+    head.appendChild(activityIcon(step.tool));
+    head.appendChild(el("span", "activity-tool", step.tool));
+    head.appendChild(el("span", "activity-iter", `#${step.iteration}`));
+    card.appendChild(head);
+    if (step.thought) card.appendChild(el("p", "activity-thought", step.thought));
+    const argsText = JSON.stringify(step.args || {});
+    if (argsText && argsText !== "{}") card.appendChild(el("p", "activity-args", argsText));
+    activityList.appendChild(card);
+  } else if (step.type === "observation") {
+    const card = activityList.querySelector(
+      `.activity-step[data-iteration="${step.iteration}"][data-tool="${CSS.escape(step.tool)}"]`
+    );
+    const details = el("details", "activity-observation" + (step.ok ? "" : " activity-observation-error"));
+    details.appendChild(el("summary", "", `Result · ${step.chars} chars`));
+    details.appendChild(el("pre", "activity-observation-text", step.text));
+    (card || activityList).appendChild(details);
+  } else if (step.type === "status") {
+    activityList.appendChild(el("div", "activity-status", step.text));
+  }
+  activityList.scrollTop = activityList.scrollHeight;
 }
 
 /* ------------------------------------------------------------------ */
@@ -169,6 +226,21 @@ quickActions.forEach((action) => {
   });
 });
 
+function setComposerRunning(running) {
+  composerSend.classList.toggle("is-stop", running);
+  composerSendLabel.textContent = running ? "Stop" : "Send";
+  composerSendIcon.hidden = running;
+  composerStopIcon.hidden = !running;
+}
+
+async function stopCurrentRun() {
+  try {
+    await fetch("/api/chat/stop", { method: "POST" });
+  } catch (error) {
+    // Best-effort; the run will still finish on its own.
+  }
+}
+
 async function sendMessage(message) {
   const empty = document.getElementById("chat-empty");
   if (empty) empty.remove();
@@ -203,22 +275,12 @@ async function sendMessage(message) {
   chatColumn.appendChild(userMsg);
 
   const agentMsg = el("div", "msg msg-agent");
-  const ledger = el("div", "ledger");
-  agentMsg.appendChild(ledger);
   chatColumn.appendChild(agentMsg);
   scrollToBottom();
 
-  composerSend.disabled = true;
-  let entryNumber = 0;
-
-  const addLedgerRow = (text, live) => {
-    entryNumber += 1;
-    const row = el("div", "ledger-row" + (live ? " ledger-live" : ""));
-    row.appendChild(el("span", "ledger-no", String(entryNumber)));
-    row.appendChild(el("span", "ledger-text", text));
-    ledger.appendChild(row);
-    scrollToBottom();
-  };
+  setComposerRunning(true);
+  resetActivity();
+  activityLive.hidden = false;
 
   try {
     const response = await fetch("/api/chat", {
@@ -249,13 +311,14 @@ async function sendMessage(message) {
     const failure = el("div", "msg-answer msg-error", `Connection problem: ${error.message} Check the server and try again.`);
     agentMsg.appendChild(failure);
   } finally {
-    composerSend.disabled = false;
+    setComposerRunning(false);
+    activityLive.hidden = true;
     composerInput.focus();
   }
 
   function handleEvent(event) {
-    if (event.type === "event") {
-      addLedgerRow(event.text.trim(), true);
+    if (event.type === "step") {
+      handleStepEvent(event.step);
       return;
     }
     if (event.type === "error") {
@@ -264,7 +327,6 @@ async function sendMessage(message) {
       return;
     }
     if (event.type === "final") {
-      ledger.querySelectorAll(".ledger-row").forEach((row) => row.classList.remove("ledger-live"));
       agentMsg.appendChild(el("div", "msg-answer", event.answer));
       if (event.artifacts && event.artifacts.length) {
         const artifacts = el("div", "msg-artifacts");
@@ -282,8 +344,12 @@ async function sendMessage(message) {
 
 composer.addEventListener("submit", (event) => {
   event.preventDefault();
+  if (composerSend.classList.contains("is-stop")) {
+    stopCurrentRun();
+    return;
+  }
   const message = composerInput.value.trim();
-  if (!message || composerSend.disabled) return;
+  if (!message) return;
   composerInput.value = "";
   composerInput.style.height = "auto";
   sendMessage(message);
@@ -305,17 +371,19 @@ composerInput.addEventListener("input", () => {
 /* Assets vault                                                        */
 /* ------------------------------------------------------------------ */
 
+const assetsPage = document.getElementById("assets-page");
 const assetsList = document.getElementById("assets-list");
 const assetDetail = document.getElementById("asset-detail");
 
 async function loadAssets() {
   assetDetail.hidden = true;
-  assetsList.hidden = false;
+  assetDetail.replaceChildren();
+  assetsPage.hidden = false;
   const response = await fetch("/api/assets");
   const { assets } = await response.json();
   assetsList.replaceChildren();
   if (!assets.length) {
-    assetsList.appendChild(el("p", "view-lede", "No assets yet. Ask the assistant to create one — e.g. \u201cCreate an asset for 12 Ocean St\u201d."));
+    assetsList.appendChild(el("p", "view-lede", "No assets yet. Ask the assistant to create one — e.g. “Create an asset for 12 Ocean St”."));
     return;
   }
   for (const asset of assets) {
@@ -332,53 +400,99 @@ async function loadAssets() {
   }
 }
 
+function renderPanelEmpty(panel) {
+  panel.replaceChildren();
+  panel.appendChild(el("p", "view-lede panel-empty", "Select a fact or memory file from the list to see its details here."));
+}
+
 async function openAsset(assetId) {
   const response = await fetch(`/api/assets/${encodeURIComponent(assetId)}`);
   const detail = await response.json();
-  assetsList.hidden = true;
+  assetsPage.hidden = true;
   assetDetail.hidden = false;
   assetDetail.replaceChildren();
 
-  const back = el("button", "detail-back", "\u2190 All assets");
+  const back = el("button", "detail-back", "← All assets");
   back.addEventListener("click", loadAssets);
   assetDetail.appendChild(back);
   assetDetail.appendChild(el("h2", "view-title", detail.id));
 
+  const layout = el("div", "asset-detail-layout");
+  const main = el("div", "asset-detail-main");
+  const panel = el("div", "asset-detail-panel");
+  renderPanelEmpty(panel);
+
+  let activeRow = null;
+  const selectRow = (row) => {
+    if (activeRow) activeRow.classList.remove("active");
+    activeRow = row;
+    if (activeRow) activeRow.classList.add("active");
+  };
+
   const factsSection = el("div", "detail-section");
   factsSection.appendChild(el("h2", "", "Facts"));
   if (detail.facts.length) {
-    const table = el("table", "facts");
-    for (const fact of detail.facts) {
-      const row = el("tr");
-      row.appendChild(el("td", "", fact.field));
-      const valueCell = el("td", "f-value", String(fact.value));
-      if (fact.stale) valueCell.appendChild(el("span", "badge-stale", "STALE"));
-      row.appendChild(valueCell);
-      row.appendChild(el("td", "f-source", fact.source || ""));
-      table.appendChild(row);
-    }
-    factsSection.appendChild(table);
+    const staleCount = detail.facts.filter((fact) => fact.stale).length;
+    const list = el("ul", "compact-list");
+    const item = el("li");
+    const row = el("button", "compact-row");
+    row.appendChild(el("span", "compact-row-label", "Facts"));
+    const value = el("span", "compact-row-value", `${detail.facts.length} field${detail.facts.length === 1 ? "" : "s"}`);
+    if (staleCount > 0) value.appendChild(el("span", "badge-stale", `${staleCount} STALE`));
+    row.appendChild(value);
+    row.addEventListener("click", () => {
+      selectRow(row);
+      panel.replaceChildren();
+      panel.appendChild(el("div", "panel-kicker", "Facts"));
+      panel.appendChild(el("h3", "panel-title", detail.id));
+      for (const fact of detail.facts) {
+        const factRow = el("div", "panel-row");
+        factRow.appendChild(el("span", "panel-row-label", fact.field));
+        const valueText = el("span", "panel-row-value", String(fact.value));
+        if (fact.stale) valueText.appendChild(el("span", "badge-stale", "STALE"));
+        factRow.appendChild(valueText);
+        panel.appendChild(factRow);
+      }
+      if (staleCount > 0) {
+        panel.appendChild(el("p", "panel-note", "Some facts' source files have changed since extraction. Ask the assistant to re-extract facts for this asset."));
+      }
+    });
+    item.appendChild(row);
+    list.appendChild(item);
+    factsSection.appendChild(list);
   } else {
     factsSection.appendChild(el("p", "view-lede", "No facts extracted yet. Ask the assistant to extract facts for this asset."));
   }
-  assetDetail.appendChild(factsSection);
+  main.appendChild(factsSection);
 
   const filesSection = el("div", "detail-section");
   filesSection.appendChild(el("h2", "", "Memory files"));
-  const fileView = el("div", "file-view");
-  fileView.hidden = true;
-  for (const file of detail.files) {
-    const link = el("button", "file-link", file.name);
-    link.addEventListener("click", async () => {
-      const fileResponse = await fetch(`/api/assets/${encodeURIComponent(detail.id)}/files/${encodeURI(file.name)}`);
-      const payload = await fileResponse.json();
-      fileView.textContent = payload.content;
-      fileView.hidden = false;
-    });
-    filesSection.appendChild(link);
+  if (detail.files.length) {
+    const list = el("ul", "compact-list");
+    for (const file of detail.files) {
+      const item = el("li");
+      const row = el("button", "compact-row");
+      row.appendChild(el("span", "compact-row-label", file.name));
+      row.appendChild(el("span", "compact-row-value", "→"));
+      row.addEventListener("click", async () => {
+        selectRow(row);
+        panel.replaceChildren();
+        panel.appendChild(el("div", "panel-kicker", "Memory file"));
+        panel.appendChild(el("h3", "panel-title", file.name));
+        const body = el("pre", "panel-file-content", "Loading…");
+        panel.appendChild(body);
+        const fileResponse = await fetch(`/api/assets/${encodeURIComponent(detail.id)}/files/${encodeURI(file.name)}`);
+        const payload = await fileResponse.json();
+        body.textContent = payload.content;
+      });
+      item.appendChild(row);
+      list.appendChild(item);
+    }
+    filesSection.appendChild(list);
+  } else {
+    filesSection.appendChild(el("p", "view-lede", "No memory files yet."));
   }
-  filesSection.appendChild(fileView);
-  assetDetail.appendChild(filesSection);
+  main.appendChild(filesSection);
 
   if (detail.artifacts.length) {
     const artifactSection = el("div", "detail-section");
@@ -390,8 +504,12 @@ async function openAsset(assetId) {
       chips.appendChild(chip);
     }
     artifactSection.appendChild(chips);
-    assetDetail.appendChild(artifactSection);
+    main.appendChild(artifactSection);
   }
+
+  layout.appendChild(main);
+  layout.appendChild(panel);
+  assetDetail.appendChild(layout);
 }
 
 /* ------------------------------------------------------------------ */

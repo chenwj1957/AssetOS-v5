@@ -73,6 +73,7 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
         agent_loop.approval_policy = approval_policy
     session = Session(loop=agent_loop)
     app.state.session = session
+    app.state.active_cancel_event = None
 
     registry = agent_loop.memory.asset_registry
     file_registry = agent_loop.memory.file_registry
@@ -93,15 +94,17 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
             raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
         events: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
+        cancel_event = threading.Event()
+        app.state.active_cancel_event = cancel_event
 
-        def emit(text: str) -> None:
-            events.put({"type": "event", "text": text})
+        def emit(event: dict[str, Any]) -> None:
+            events.put({"type": "step", "step": event})
 
         def worker() -> None:
             with app.state.chat_lock:
                 agent_loop.emit = emit
                 try:
-                    state = session.ask(message)
+                    state = session.ask(message, cancel_event=cancel_event)
                     events.put(
                         {
                             "type": "final",
@@ -124,6 +127,8 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
                 except PMIntelligenceError as exc:
                     events.put({"type": "error", "text": str(exc)})
                 finally:
+                    if app.state.active_cancel_event is cancel_event:
+                        app.state.active_cancel_event = None
                     events.put(None)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -136,6 +141,14 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
                 yield f"data: {json.dumps(item)}\n\n"
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.post("/api/chat/stop")
+    def stop_chat() -> JSONResponse:
+        cancel_event = app.state.active_cancel_event
+        if cancel_event is None:
+            return JSONResponse({"stopped": False})
+        cancel_event.set()
+        return JSONResponse({"stopped": True})
 
     # ------------------------------------------------------------------
     # Uploads: attach a file to the conversation, optionally tagged to an asset
