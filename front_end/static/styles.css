@@ -62,7 +62,7 @@ body {
 .nav-item:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
 .nav-item.active { background: rgba(168, 129, 76, 0.18); color: #f0d9b8; }
 .nav-item:focus-visible, button:focus-visible, a:focus-visible,
-input:focus-visible, textarea:focus-visible {
+input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline: 2px solid var(--brass);
   outline-offset: 2px;
 }
@@ -161,65 +161,128 @@ input:focus-visible, textarea:focus-visible {
 .artifact-chip:hover { background: #f4ead9; }
 
 .composer {
-  display: flex;
-  gap: 10px;
   max-width: 760px;
   width: 100%;
   margin: 0 auto;
   padding: 12px 28px 22px;
 }
+.composer-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  box-shadow: 0 10px 30px rgba(28, 40, 38, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
 .composer textarea {
-  flex: 1;
   resize: none;
   font: inherit;
-  padding: 11px 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--card);
-  color: var(--ink);
+  width: 100%;
+  min-height: 48px;
   max-height: 160px;
+  padding: 10px 12px 4px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
 }
+.composer textarea::placeholder { color: #7d8782; }
+.composer-panel:focus-within { border-color: var(--brass); box-shadow: 0 12px 34px rgba(168, 129, 76, 0.16); }
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.composer-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .composer button, .workflow-form button, .wf-run {
   font: inherit;
   font-weight: 600;
-  background: var(--brass);
-  color: #fff;
   border: none;
-  border-radius: 10px;
-  padding: 0 20px;
+  border-radius: 999px;
   cursor: pointer;
 }
-.composer button:hover, .workflow-form button:hover, .wf-run:hover { background: var(--brass-deep); }
-.composer button:disabled { background: var(--line); cursor: default; }
+.workflow-form button, .wf-run {
+  background: var(--brass);
+  color: #fff;
+}
+.workflow-form button:hover, .wf-run:hover { background: var(--brass-deep); }
+.composer button:disabled { opacity: 0.55; cursor: default; }
 
 .composer-icon-btn {
+  align-items: center;
+  background: #f2eee5;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  display: inline-flex;
   flex: 0 0 auto;
-  width: 44px;
-  padding: 0;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+}
+.composer-icon-btn:hover { background: #e9e3d6; }
+.composer-icon-btn span[aria-hidden="true"] {
   font-size: 20px;
   line-height: 1;
+  margin-top: -2px;
+}
+.composer-asset-wrap {
+  align-items: center;
+  background: #f8f5ee;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: 6px;
+  min-height: 36px;
+  min-width: 0;
+  padding: 0 10px 0 12px;
+}
+.composer-asset-label {
+  color: var(--brass-deep);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .composer-asset {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   font: inherit;
   font-size: 12.5px;
-  max-width: 160px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--card);
+  max-width: 170px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
   color: var(--ink-soft);
 }
+.composer-send {
+  align-items: center;
+  background: var(--brass);
+  color: #fff;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  justify-content: center;
+  min-height: 36px;
+  min-width: 36px;
+  padding: 0 14px;
+}
+.composer-send:hover { background: var(--brass-deep); }
+.composer-send:disabled { background: var(--line); }
 
 /* ---------- Attachments ---------- */
 .attachments {
-  max-width: 760px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 0 28px;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.composer-attachments {
+  border-bottom: 1px solid var(--line);
+  padding: 0 2px 8px;
 }
 .attachments[hidden] { display: none; }
 .attachment-chip {
@@ -357,4 +420,12 @@ table.facts td.f-source { color: var(--ink-soft); font-size: 12px; }
   .nav-item { padding: 7px 9px; font-size: 13px; }
   .sidebar-foot { margin: 0; }
   .gate-label { display: none; }
+  .chat-column { padding: 28px 18px 18px; }
+  .composer { padding: 10px 12px 14px; }
+  .composer-toolbar { align-items: stretch; flex-direction: column; }
+  .composer-actions { flex-wrap: wrap; }
+  .composer-asset-wrap { flex: 1 1 180px; }
+  .composer-asset { max-width: none; width: 100%; }
+  .composer-send { width: 100%; }
 }
+
