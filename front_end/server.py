@@ -23,10 +23,24 @@ from pydantic import BaseModel
 from src.agent import AgentLoop, Session
 from src.agent.approval import ApprovalGate
 from src.core.config import Settings, load_settings
-from src.core.errors import PMIntelligenceError, UnsafeMemoryPathError
+from src.core.constants import ALLOWED_MEMORY_EXTENSIONS
+from src.core.errors import LLMProviderError, PMIntelligenceError, UnsafeMemoryPathError
 from src.memory.skills import SkillWriter
+from src.tools.artifact_tools import ARTIFACT_TOOLS
+from src.tools.calc_tool import CALC_TOOLS
+from src.tools.fact_tools import FACT_TOOLS
+from src.tools.memory_tools import MEMORY_TOOLS
+from src.tools.research_tools import RESEARCH_TOOLS
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+TOOL_GROUPS: dict[str, str] = {
+    **{tool.name: "Memory" for tool in MEMORY_TOOLS},
+    **{tool.name: "Facts" for tool in FACT_TOOLS},
+    **{tool.name: "Calculations" for tool in CALC_TOOLS},
+    **{tool.name: "Research" for tool in RESEARCH_TOOLS},
+    **{tool.name: "Artifacts" for tool in ARTIFACT_TOOLS},
+}
 DEFAULT_WORKFLOWS = [
     {
         "name": "Arrears sweep",
@@ -240,6 +254,10 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
             except UnsafeMemoryPathError:
                 filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{filename}"
                 file_writer.write_bytes(asset_id, f"Files/{filename}", content)
+            if Path(filename).suffix.lower() not in ALLOWED_MEMORY_EXTENSIONS:
+                threading.Thread(
+                    target=_extract_uploaded_file, args=(asset_id, filename), daemon=True
+                ).start()
         else:
             uploads_dir.mkdir(parents=True, exist_ok=True)
             path = uploads_dir / filename
@@ -249,6 +267,31 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
             path.write_bytes(content)
 
         return JSONResponse({"name": filename, "asset_id": asset_id})
+
+    def _extract_uploaded_file(asset_id: str, filename: str) -> None:
+        """Best-effort: ask the Codex sub-agent to turn an uploaded binary/office
+        file into a searchable Markdown extract plus a summary sidecar, so
+        search_memory and read_memory can see its content like any other
+        memory file."""
+        asset_dir = registry.resolve_asset_dir(asset_id)
+        task = (
+            f"A file named 'Files/{filename}' was just uploaded to this asset's memory folder. "
+            "Read its content and create two new files (do not modify or delete any other files):\n"
+            f"1. 'Files/{filename}.md' - a Markdown extract of its key textual content "
+            "(preserve tables as Markdown tables, keep important figures, dates, and clauses).\n"
+            f"2. 'Files/{filename}.md.meta.json' - a JSON object with a single field "
+            '"summary": a 1-2 sentence plain-text summary of the document.'
+        )
+        try:
+            agent_loop.llm_client.run_agentic(
+                task,
+                sandbox="workspace-write",
+                enable_search=False,
+                working_dir=str(asset_dir),
+                timeout_seconds=180,
+            )
+        except LLMProviderError:
+            pass
 
     # ------------------------------------------------------------------
     # Vault: assets, facts, files, artifacts
@@ -414,6 +457,7 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
                 "args": tool.args,
                 "requires_approval": tool.requires_approval,
                 "enabled": tool_enabled(tool.name),
+                "group": TOOL_GROUPS.get(tool.name, "Other"),
             }
             for tool in agent_loop.tools
         ]

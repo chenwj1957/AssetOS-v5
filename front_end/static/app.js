@@ -597,7 +597,7 @@ async function sendMessage(message) {
       return;
     }
     if (event.type === "final") {
-      const answerNode = el("div", "msg-answer");
+      const answerNode = el("div", "msg-answer markdown-body");
       answerNode.innerHTML = renderMarkdown(event.answer || "");
       agentMsg.appendChild(answerNode);
       if (event.artifacts && event.artifacts.length) {
@@ -751,11 +751,17 @@ async function openAsset(assetId) {
         panel.replaceChildren();
         panel.appendChild(el("div", "panel-kicker", "Memory file"));
         panel.appendChild(el("h3", "panel-title", file.name));
-        const body = el("pre", "panel-file-content", "Loading…");
+        const body = el("pre", "panel-file-content is-plain", "Loading…");
         panel.appendChild(body);
         const fileResponse = await fetch(`/api/assets/${encodeURIComponent(detail.id)}/files/${encodeURI(file.name)}`);
         const payload = await fileResponse.json();
-        body.textContent = payload.content;
+        if (file.name.toLowerCase().endsWith(".md")) {
+          const rendered = el("div", "panel-file-content markdown-body");
+          rendered.innerHTML = renderMarkdown(payload.content);
+          body.replaceWith(rendered);
+        } else {
+          body.textContent = payload.content;
+        }
       });
       item.appendChild(row);
       list.appendChild(item);
@@ -863,7 +869,13 @@ async function loadRuns() {
       runDetail.replaceChildren();
       runDetail.appendChild(el("div", "panel-kicker", "Run"));
       runDetail.appendChild(el("h3", "panel-title", run.name));
-      runDetail.appendChild(el("pre", "run-view", payload.content));
+      if (run.name.toLowerCase().endsWith(".md")) {
+        const rendered = el("div", "run-view markdown-body");
+        rendered.innerHTML = renderMarkdown(payload.content);
+        runDetail.appendChild(rendered);
+      } else {
+        runDetail.appendChild(el("pre", "run-view is-plain", payload.content));
+      }
     });
     runsList.appendChild(row);
   }
@@ -979,27 +991,36 @@ async function loadCapabilities() {
   if (!tools.length) {
     toolsList.appendChild(el("p", "view-lede", "No tools found."));
   }
+  const groups = new Map();
   for (const tool of tools) {
-    const row = el("div", "cap-row");
-    const body = el("div", "cap-row-body");
-    const nameLine = el("div", "cap-row-name", tool.name);
-    if (tool.requires_approval) nameLine.appendChild(el("span", "cap-tag", "Approval"));
-    body.appendChild(nameLine);
-    if (tool.description) body.appendChild(el("p", "cap-row-desc", tool.description));
-    if (tool.args && Object.keys(tool.args).length) {
-      body.appendChild(el("p", "cap-row-args", `Args: ${Object.keys(tool.args).join(", ")}`));
+    const group = tool.group || "Other";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(tool);
+  }
+  for (const [group, groupTools] of groups) {
+    toolsList.appendChild(el("h2", "cap-group-title", group));
+    for (const tool of groupTools) {
+      const row = el("div", "cap-row");
+      const body = el("div", "cap-row-body");
+      const nameLine = el("div", "cap-row-name", tool.name);
+      if (tool.requires_approval) nameLine.appendChild(el("span", "cap-tag", "Approval"));
+      body.appendChild(nameLine);
+      if (tool.description) body.appendChild(el("p", "cap-row-desc", tool.description));
+      if (tool.args && Object.keys(tool.args).length) {
+        body.appendChild(el("p", "cap-row-args", `Args: ${Object.keys(tool.args).join(", ")}`));
+      }
+      row.appendChild(body);
+      row.appendChild(
+        capToggle(tool.enabled, async (enabled) => {
+          await fetch(`/api/capabilities/tools/${encodeURIComponent(tool.name)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled }),
+          });
+        })
+      );
+      toolsList.appendChild(row);
     }
-    row.appendChild(body);
-    row.appendChild(
-      capToggle(tool.enabled, async (enabled) => {
-        await fetch(`/api/capabilities/tools/${encodeURIComponent(tool.name)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled }),
-        });
-      })
-    );
-    toolsList.appendChild(row);
   }
 }
 

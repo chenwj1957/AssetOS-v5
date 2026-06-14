@@ -60,8 +60,9 @@ def _save_memory_note(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     content = require_str(args, "content")
     stem = re.sub(r"[^A-Za-z0-9_-]+", "_", title).strip("_") or "note"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    relative_path = f"{timestamp}_{stem}.md"
+    relative_path = f"Files/{timestamp}_{stem}.md"
     path = ctx.memory.file_writer.write_bytes(asset_id, relative_path, content.encode("utf-8"))
+    ctx.memory.file_writer.write_json(asset_id, f"{relative_path}.meta.json", {"summary": title})
     return ToolResult(observation=f"Saved memory note to {path}.")
 
 
