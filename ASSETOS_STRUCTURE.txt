@@ -30,13 +30,13 @@ AssetOS-v5.5/
 |-- pyproject.toml               Python metadata, dependencies, and pytest config
 |-- requirements.txt             Core runtime dependencies
 |-- data/                        Runtime data and the new-asset template
-|-- front_end/                   Independent FastAPI and browser UI module
-|-- src/                         Core application packages
+|-- src_frontend/                   Independent FastAPI and browser UI module
+|-- src_backend/                         Core application packages
 |-- tests/                       Main automated test suite
 `-- .gitignore                   Excludes runtime data, caches, and virtual envs
 
-The core application only depends inward on src/. The front_end/ package imports
-the core, but src/ never imports front_end/. This keeps the CLI, scheduler, and
+The core application only depends inward on src_backend/. The src_frontend/ package imports
+the core, but src_backend/ never imports src_frontend/. This keeps the CLI, scheduler, and
 agent usable if the web interface is removed.
 
 
@@ -62,10 +62,10 @@ It requests named tools. The tool registry is therefore the boundary between
 model reasoning and application capabilities.
 
 
-4. CORE PACKAGE: src/core/
+4. CORE PACKAGE: src_backend/core/
 --------------------------
 
-src/core/config.py
+src_backend/core/config.py
   Defines the immutable Settings object and load_settings(). Settings supplies:
   project root; data, skill, and asset paths; Ollama endpoint/model; Codex model;
   memory file limits; context limits; loop limits; and Codex delegation settings.
@@ -75,7 +75,7 @@ src/core/config.py
   Windows CreateProcessWithLogonW failure seen with workspace-write. Other
   platforms retain the workspace-write default.
 
-src/core/constants.py
+src_backend/core/constants.py
   Holds system defaults:
   - data location: data/
   - assets: data/memory/assets/
@@ -88,7 +88,7 @@ src/core/constants.py
   - allowed readable memory extensions: .md and .txt
   - delegated Codex timeout and sandbox
 
-src/core/types.py
+src_backend/core/types.py
   Defines shared data contracts:
   - Skill: skill name, path, content, and summary
   - File: asset id, logical file name, path, summary, and content
@@ -100,22 +100,22 @@ src/core/types.py
   AgentState is the cross-turn scratchpad. It tracks the current asset, the most
   recent structured result, generated artifacts, turns, answer, and journal path.
 
-src/core/errors.py
+src_backend/core/errors.py
   Defines the application error hierarchy. Important types are:
   PMIntelligenceError, RoutingError, MemoryNotFoundError,
   UnsafeMemoryPathError, SkillNotFoundError, LLMProviderError, and
   ConfigurationError.
 
-src/core/text.py
+src_backend/core/text.py
   Provides bounded-text helpers. truncate_text() limits one observation.
   trim_to_budget() retains the newest transcript or session blocks within a
   character budget, inserting a marker when older blocks are discarded.
 
 
-5. AGENT ORCHESTRATION: src/agent/
+5. AGENT ORCHESTRATION: src_backend/agent/
 ----------------------------------
 
-src/agent/loop.py - AgentLoop
+src_backend/agent/loop.py - AgentLoop
 
 AgentLoop is the composition root and central runtime controller. Its constructor
 creates or accepts the LLM client, tool list, event emitter, and approval policy.
@@ -150,7 +150,7 @@ to build_docx without exposing an unvalidated intermediate file.
 The default approval policy denies every gated tool. Interactive entry points
 must explicitly replace that policy if they want to permit gated actions.
 
-src/agent/prompt.py
+src_backend/agent/prompt.py
   Builds the system prompt and renders the run transcript. The prompt includes
   the live tool catalog generated from ToolSpec objects, output format rules,
   memory grounding requirements, fact freshness rules, arithmetic requirements,
@@ -161,13 +161,13 @@ src/agent/prompt.py
   previous turns. Old turns are trimmed first when the transcript exceeds its
   configured budget.
 
-src/agent/session.py - Session
+src_backend/agent/session.py - Session
   Provides the perpetual conversational layer around separate AgentLoop runs.
   Each question starts a fresh inner loop. Session retains compact Q/A summaries
   plus the last selected asset, capped at 4,000 characters. Long-term knowledge
   is not kept in an ever-growing prompt; it is persisted in memory and journals.
 
-src/agent/journal.py
+src_backend/agent/journal.py
   Mechanically writes a markdown record after every meaningful run. A journal
   contains task, active asset, tools used, observation excerpts, artifacts,
   memory-writing warnings, and the answer excerpt. No LLM is involved.
@@ -180,7 +180,7 @@ src/agent/journal.py
 
   Journaling is best-effort and cannot fail an otherwise successful run.
 
-src/agent/scheduler.py
+src_backend/agent/scheduler.py
   Implements recurring tasks without a cron dependency. Supported schedules are:
   interval in minutes, daily at HH:MM, and weekly on a weekday at HH:MM.
 
@@ -191,10 +191,10 @@ src/agent/scheduler.py
   like interactive work.
 
 
-6. TOOL FRAMEWORK: src/tools/
+6. TOOL FRAMEWORK: src_backend/tools/
 ------------------------------
 
-src/tools/base.py defines the capability contracts:
+src_backend/tools/base.py defines the capability contracts:
 
 - MemoryHub: all memory services available to tools
 - ToolContext: Settings + LLMClient + MemoryHub + current AgentState
@@ -204,13 +204,13 @@ src/tools/base.py defines the capability contracts:
 - require_str(): common non-empty string argument validation
 - catches(): converts selected exceptions into ERROR observations
 
-src/tools/registry.py assembles all capabilities in this order:
+src_backend/tools/registry.py assembles all capabilities in this order:
 
   memory tools -> fact tools -> calculator -> research tools -> artifact tools
 
 The complete registered tool catalog is listed below.
 
-Memory tools - src/tools/memory_tools.py
+Memory tools - src_backend/tools/memory_tools.py
 
 1. list_assets
    Lists asset ids, profile excerpts, and readable memory file names.
@@ -231,7 +231,7 @@ Memory tools - src/tools/memory_tools.py
 6. load_skill
    Loads skill.md as reference material, explicitly below system instructions.
 
-Fact and search tools - src/tools/fact_tools.py
+Fact and search tools - src_backend/tools/fact_tools.py
 
 7. view_schema
    Renders the active structured-fact schema.
@@ -254,7 +254,7 @@ Fact and search tools - src/tools/fact_tools.py
     Renders current facts with source provenance, deprecated-field notices, and
     STALE warnings when source content has changed.
 
-Arithmetic tool - src/tools/calc_tool.py
+Arithmetic tool - src_backend/tools/calc_tool.py
 
 13. calculate
     Evaluates a restricted Python expression AST. It supports numeric literals,
@@ -262,7 +262,7 @@ Arithmetic tool - src/tools/calc_tool.py
     attributes, imports, arbitrary calls, and eval are prohibited. The prompt
     requires this tool for financial arithmetic.
 
-Research tools - src/tools/research_tools.py
+Research tools - src_backend/tools/research_tools.py
 
 14. web_search
     Uses Tavily when TAVILY_API_KEY and tavily-python are available. Otherwise it
@@ -281,7 +281,7 @@ Research tools - src/tools/research_tools.py
     folder becomes the working directory. This tool is approval-gated because it
     can perform file work and broader computer-use actions.
 
-Artifact tools - src/tools/artifact_tools.py
+Artifact tools - src_backend/tools/artifact_tools.py
 
 18. generate_invoice
     Gives gathered context to Codex and requires a fixed invoice JSON structure.
@@ -294,18 +294,18 @@ Artifact tools - src/tools/artifact_tools.py
     during read_memory calls.
 
 
-7. MEMORY SYSTEM: src/memory/
+7. MEMORY SYSTEM: src_backend/memory/
 -----------------------------
 
 The memory system separates registries, readers, and writers. Registries locate
 and enumerate data; readers enforce read rules; writers enforce creation rules.
 
-src/memory/paths.py
+src_backend/memory/paths.py
   resolve_within() is the common path-safety primitive. It rejects absolute
   paths, parent-directory references, and resolved/symlink paths that escape the
   allowed root.
 
-Assets - src/memory/assets/
+Assets - src_backend/memory/assets/
 
 AssetRegistry:
 - lists asset directory names;
@@ -319,7 +319,7 @@ AssetWriter:
 - otherwise creates Files/ and Artifact/ directories;
 - writes the supplied or default profile.md.
 
-Files - src/memory/files/
+Files - src_backend/memory/files/
 
 FileRegistry:
 - recursively lists .md and .txt files under an asset;
@@ -337,14 +337,14 @@ FileWriter:
 - creates parent directories;
 - refuses to overwrite an existing file.
 
-Skills - src/memory/skills/
+Skills - src_backend/memory/skills/
 
 Each skill is a directory under data/memory/skills/ containing skill.md and,
 optionally, skill.json. SkillRegistry discovers and summarizes skills. SkillReader
 loads their full text. A JSON summary takes precedence over deriving a summary
 from the markdown body.
 
-Search - src/memory/search/indexer.py
+Search - src_backend/memory/search/indexer.py
 
 MemoryIndex stores a disposable SQLite index at data/memory/index.sqlite3.
 Before every search it scans asset memory and global journals, hashes content,
@@ -356,7 +356,7 @@ and LIKE query are used when the local SQLite build lacks FTS5. The index can be
 deleted and rebuilt because markdown is authoritative.
 
 
-8. ADAPTIVE FACT LAYER: src/memory/facts/
+8. ADAPTIVE FACT LAYER: src_backend/memory/facts/
 -----------------------------------------
 
 The fact layer makes amounts, dates, parties, and other repeated values directly
@@ -399,10 +399,10 @@ existing facts not present in a new extraction, updates facts.json, and appends 
 ledger event only when a value actually changes.
 
 
-9. LLM INTEGRATION: src/llm/
+9. LLM INTEGRATION: src_backend/llm/
 ----------------------------
 
-src/llm/client.py - LLMClient
+src_backend/llm/client.py - LLMClient
 
 LLMClient exposes role-based calls rather than making callers know model names:
 
@@ -412,7 +412,7 @@ LLMClient exposes role-based calls rather than making callers know model names:
 
 An optional timing emitter reports provider, mode, and elapsed time.
 
-src/llm/adapters/codex.py - AdapterCodex
+src_backend/llm/adapters/codex.py - AdapterCodex
 
 Codex is invoked through the local codex CLI using subprocess input/output.
 One-shot controller and structured-generation calls run with a read-only sandbox.
@@ -423,7 +423,7 @@ JSON parsing tolerates fenced output or limited surrounding prose but ultimately
 requires one JSON object. Missing CLI, timeout, login, and process failures become
 LLMProviderError or RoutingError instances.
 
-src/llm/adapters/ollama.py - AdapterOllama
+src_backend/llm/adapters/ollama.py - AdapterOllama
 
 Ollama is accessed through POST <ollama_url>/api/generate. It supports plain text
 and Ollama JSON mode, validates the HTTP and response shape, and returns detailed
@@ -433,7 +433,7 @@ Although Ollama remains available as a fast local provider, the current agent
 controller, fact extraction, and invoice generation explicitly use Codex.
 
 
-10. DOCX ARTIFACT PIPELINE: src/tools/build_docx/
+10. DOCX ARTIFACT PIPELINE: src_backend/tools/build_docx/
 -------------------------------------------------
 
 The document engine deliberately separates semantic invoice data from visual
@@ -496,30 +496,30 @@ error response.
 11. USER ENTRY POINTS
 ---------------------
 
-CLI - src/cli/main.py
+CLI - src_backend/cli/main.py
 
-python -m src.cli.main starts a perpetual REPL. Each task is sent through Session
+python -m src_backend.cli.main starts a perpetual REPL. Each task is sent through Session
 and AgentLoop. Gated tools prompt the user with y/N. Results are formatted with
 the active asset, tool trace, artifact paths, and final answer.
 
 run_once(task) is a simple one-shot Python entry point without conversational
 session state.
 
-Scheduler CLI - src/cli/schedule.py
+Scheduler CLI - src_backend/cli/schedule.py
 
-python -m src.cli.schedule reads data/schedules.json, creates a Scheduler, and
+python -m src_backend.cli.schedule reads data/schedules.json, creates a Scheduler, and
 runs its polling loop until interrupted. Its default AgentLoop denies gated tools.
 
-Output formatter - src/outputs/formatter.py
+Output formatter - src_backend/outputs/formatter.py
 
 Converts AgentState into a readable terminal report and displays artifact paths
 relative to the project or data directory when possible.
 
 
-12. WEB APPLICATION: front_end/
+12. WEB APPLICATION: src_frontend/
 --------------------------------
 
-front_end/server.py creates a local FastAPI application bound to 127.0.0.1:8400.
+src_frontend/server.py creates a local FastAPI application bound to 127.0.0.1:8400.
 It owns one Session and serializes chat runs with a threading lock. This matches
 the single-user local deployment model and protects shared state such as the
 SQLite connection and session summary.
@@ -561,7 +561,7 @@ GET/POST /api/workflows
 GET/POST /api/settings
   Reads or changes the in-memory allow_gated switch used by approval_policy().
 
-Static UI - front_end/static/
+Static UI - src_frontend/static/
 
 index.html defines four main views:
 
@@ -732,7 +732,7 @@ tests/test_session_and_journal.py
 tests/test_skill_reader.py
   Skill discovery, summaries, metadata precedence, reading, and error messages.
 
-src/tools/build_docx/tests/
+src_backend/tools/build_docx/tests/
   Standalone invoice-to-DOCX pipeline tests.
 
 

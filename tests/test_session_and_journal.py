@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.agent import AgentLoop, Session
-from src.memory.assets import AssetRegistry
-from src.memory.search import MemoryIndex
+from src_backend.agent import AgentLoop, Session
+from src_backend.memory.assets import AssetRegistry
+from src_backend.memory.search import MemoryIndex
 from tests.test_agent_loop import ScriptedLLM, make_settings, seed_asset
 
 

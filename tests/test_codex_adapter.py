@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from src.llm.adapters.codex import _parse_agentic_result
+from src_backend.llm.adapters.codex import _parse_agentic_result
 
 
 def _line(item: dict) -> str:

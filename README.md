@@ -21,14 +21,14 @@ User task
 | v4 | v5 |
 | --- | --- |
 | Fixed pipeline: asset -> file -> skill resolvers -> 3-step plan -> executor | One observe-think-act loop; the agent inspects memory itself and reacts to results |
-| `src/routing/` (4 resolvers, plan router, validator — ~25 files) | Deleted. Replaced by `list_assets` / `read_memory` / `list_skills` / `load_skill` tools |
+| `src_backend/routing/` (4 resolvers, plan router, validator — ~25 files) | Deleted. Replaced by `list_assets` / `read_memory` / `list_skills` / `load_skill` tools |
 | `web_search` existed but was never registered | Registered, plus `fetch_url`, `browse_web`, `codex_agent` |
 | Codex used as a dumb one-shot text generator | Codex also used **agentically** (`codex exec --sandbox ... --search`) for browsing, scraping, and file work — no hand-built browser automation |
 | `LLMClient` dispatched on model-name string equality | Role-based: `generate_json(prompt, provider="ollama"|"codex")` |
 | Planner capped at 3 non-reactive steps | Up to 12 reactive turns with error feedback and retry |
 
-Kept (modular, unchanged): `src/memory/` (path-safe asset/file/skill access),
-`src/tools/build_docx/` (Python owns DOCX layout; LLM only supplies JSON), the
+Kept (modular, unchanged): `src_backend/memory/` (path-safe asset/file/skill access),
+`src_backend/tools/build_docx/` (Python owns DOCX layout; LLM only supplies JSON), the
 untrusted-content framing for memory and web text, the Ollama/Codex adapters.
 
 ## Tools
@@ -53,15 +53,15 @@ Artifacts
 ## Layout
 
 ```text
-src/agent/    loop.py (AgentLoop), prompt.py (system prompt + transcript)
-src/tools/    base.py (ToolSpec/ToolContext/ToolResult), registry.py,
+src_backend/agent/    loop.py (AgentLoop), prompt.py (system prompt + transcript)
+src_backend/tools/    base.py (ToolSpec/ToolContext/ToolResult), registry.py,
               memory_tools.py, research_tools.py, artifact_tools.py,
               build_docx/ (unchanged engine)
-src/memory/   assets/, files/, skills/ (unchanged from v4)
-src/llm/      client.py (role-based), adapters/ (ollama HTTP, codex CLI)
-src/core/     config.py, constants.py, types.py, errors.py
-src/cli/      main.py
-src/outputs/  formatter.py
+src_backend/memory/   assets/, files/, skills/ (unchanged from v4)
+src_backend/llm/      client.py (role-based), adapters/ (ollama HTTP, codex CLI)
+src_backend/core/     config.py, constants.py, types.py, errors.py
+src_backend/cli/      main.py
+src_backend/outputs/  formatter.py
 ```
 
 
@@ -135,7 +135,7 @@ by default — the safe default — and the agent is instructed to adapt (draft 
 recommendation instead of acting). `codex_agent` is gated today; future
 send/pay/post tools get the same one-line flag.
 
-**Scheduler.** `python -m src.cli.schedule` runs a daemon that feeds recurring
+**Scheduler.** `python -m src_backend.cli.schedule` runs a daemon that feeds recurring
 tasks (defined in `data/schedules.json`, see `schedules.example.json`) into
 the same agent loop: weekly arrears checks, daily lease-expiry watch,
 facts-freshness sweeps. Schedule types: interval / daily-at / weekly-on —
@@ -145,18 +145,18 @@ everything the scheduler does is auditable in searchable memory.
 
 ## Web interface (v5.5)
 
-A Mike OSS-style workbench lives under `front_end/` — a completely separate
-module (`src/` never imports it):
+A Mike OSS-style workbench lives under `src_frontend/` — a completely separate
+module (`src_backend/` never imports it):
 
 ```bash
-pip install -r front_end/requirements.txt
-python -m front_end.server      # http://localhost:8400
+pip install -r src_frontend/requirements.txt
+python -m src_frontend.server      # http://localhost:8400
 ```
 
 Assistant chat with a live activity ledger (SSE), asset vault with facts +
 STALE badges + memory files + artifact downloads, workflow presets, the run
 journal, and a sidebar switch wiring the approval policy (gated tools denied
-by default). See `front_end/README.md`.
+by default). See `src_frontend/README.md`.
 
 ## Run
 
@@ -164,7 +164,7 @@ by default). See `front_end/README.md`.
 python -m venv .venv && source .venv/bin/activate   # .\.venv\Scripts\Activate.ps1 on Windows
 pip install -r requirements.txt
 export TAVILY_API_KEY=...        # optional; Codex search is the fallback
-python -m src.cli.main
+python -m src_backend.cli.main
 ```
 
 Requires Python 3.11+, Ollama running locally (fast JSON fallback role), and a

@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 
-from src.agent import AgentLoop
-from src.memory.assets import AssetRegistry
-from src.memory.facts import FactReader, FactWriter, SchemaError, SchemaRegistry
-from src.tools.calc_tool import evaluate_expression
+from src_backend.agent import AgentLoop
+from src_backend.memory.assets import AssetRegistry
+from src_backend.memory.facts import FactReader, FactWriter, SchemaError, SchemaRegistry
+from src_backend.tools.calc_tool import evaluate_expression
 from tests.test_agent_loop import ScriptedLLM, make_settings, seed_asset
 
 

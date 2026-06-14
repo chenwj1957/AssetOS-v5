@@ -7,10 +7,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from front_end.server import create_app
-from src.agent import AgentLoop
-from src.memory.assets import AssetRegistry
-from src.memory.facts import FactReader, FactWriter, SchemaRegistry
+from src_frontend.server import create_app
+from src_backend.agent import AgentLoop
+from src_backend.memory.assets import AssetRegistry
+from src_backend.memory.facts import FactReader, FactWriter, SchemaRegistry
 from tests.test_agent_loop import ScriptedLLM, make_settings, seed_asset
 
 
@@ -46,15 +46,26 @@ def test_chat_streams_events_then_final_answer(tmp_path: Path) -> None:
 
 
 def test_assets_endpoints_and_safe_paths(tmp_path: Path) -> None:
-    client = make_client(tmp_path, ScriptedLLM([]))
+    settings = make_settings(tmp_path)
+    seed_asset(settings)
+    files_dir = settings.dir_assets / "12_ocean_st" / "Files"
+    files_dir.mkdir(parents=True)
+    (files_dir / "notes.md").write_text("Some notes.", encoding="utf-8")
+
+    loop = AgentLoop(settings=settings, llm_client=ScriptedLLM([]), emit=lambda _: None)
+    client = TestClient(create_app(settings=settings, loop=loop))
     assets = client.get("/api/assets").json()["assets"]
     assert assets[0]["id"] == "12_ocean_st"
 
     detail = client.get("/api/assets/12_ocean_st").json()
-    assert any(f["name"] == "lease.md" for f in detail["files"])
+    assert any(f["name"] == "notes.md" for f in detail["files"])
+    assert detail["has_profile"] is True
 
-    content = client.get("/api/assets/12_ocean_st/files/lease.md").json()
+    content = client.get("/api/assets/12_ocean_st/lease.md").json()
     assert "Rent" in content["content"]
+
+    files_content = client.get("/api/assets/12_ocean_st/files/notes.md").json()
+    assert files_content["content"] == "Some notes."
 
     # Path traversal is rejected, not served.
     bad = client.get("/api/assets/12_ocean_st/files/../../../etc/passwd")

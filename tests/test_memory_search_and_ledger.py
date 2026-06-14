@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from src.agent import AgentLoop
-from src.memory.assets import AssetRegistry
-from src.memory.facts import FactReader, FactWriter, SchemaRegistry
-from src.memory.search import MemoryIndex
+from src_backend.agent import AgentLoop
+from src_backend.memory.assets import AssetRegistry
+from src_backend.memory.facts import FactReader, FactWriter, SchemaRegistry
+from src_backend.memory.search import MemoryIndex
 from tests.test_agent_loop import ScriptedLLM, make_settings, seed_asset
 
 

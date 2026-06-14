@@ -2,11 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from src.core.config import Settings
-from src.core.errors import MemoryNotFoundError, UnsafeMemoryPathError
-from src.memory.assets import AssetRegistry
-from src.memory.files.registry import FileRegistry
-from src.memory.files.reader import FileReader
+from src_backend.core.config import Settings
+from src_backend.core.errors import MemoryNotFoundError, UnsafeMemoryPathError
+from src_backend.memory.assets import AssetRegistry
+from src_backend.memory.files.registry import FileRegistry
+from src_backend.memory.files.reader import FileReader
 
 
 def make_settings(tmp_path: Path, assets_dir: Path | None = None, memory_file_max_bytes: int | None = None) -> Settings:
@@ -16,6 +16,7 @@ def make_settings(tmp_path: Path, assets_dir: Path | None = None, memory_file_ma
     return Settings(
         project_root=tmp_path,
         dir_data=tmp_path,
+        dir_memory=tmp_path / "memory",
         dir_skills=tmp_path / "skills",
         dir_assets=assets_dir or tmp_path / "assets",
         ollama_url="",
@@ -165,13 +166,14 @@ def test_file_reader_rejects_asset_id_traversal(tmp_path: Path) -> None:
             FileReader(registry).read_file(malicious_asset_id, "secret.md")
 
 
-def test_file_reader_enforces_file_size_limit(tmp_path: Path) -> None:
+def test_file_reader_truncates_oversized_file(tmp_path: Path) -> None:
     asset_dir = tmp_path / "assets" / "asset #1"
     asset_dir.mkdir(parents=True)
     (asset_dir / "profile.md").write_text("too long", encoding="utf-8")
     settings = Settings(
         project_root=tmp_path,
         dir_data=tmp_path / "data",
+        dir_memory=tmp_path / "data" / "memory",
         dir_skills=tmp_path / "data" / "skills",
         dir_assets=tmp_path / "assets",
         ollama_url="",
@@ -180,5 +182,6 @@ def test_file_reader_enforces_file_size_limit(tmp_path: Path) -> None:
         memory_file_max_bytes=3,
     )
 
-    with pytest.raises(MemoryNotFoundError, match="exceeds"):
-        FileReader(FileRegistry(settings=settings, asset_registry=AssetRegistry(settings=settings))).read_file("asset #1", "profile.md")
+    file = FileReader(FileRegistry(settings=settings, asset_registry=AssetRegistry(settings=settings))).read_file("asset #1", "profile.md")
+    assert file.content.startswith("too")
+    assert "truncated to 3 bytes" in file.content

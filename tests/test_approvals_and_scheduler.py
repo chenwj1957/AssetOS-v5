@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from src.agent import AgentLoop, ScheduledTask, Scheduler
+from src_backend.agent import AgentLoop, ScheduledTask, Scheduler
 from tests.test_agent_loop import ScriptedLLM, make_settings, seed_asset
 
 

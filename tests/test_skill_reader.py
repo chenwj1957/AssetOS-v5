@@ -2,16 +2,17 @@ from pathlib import Path
 
 import pytest
 
-from src.core.config import Settings
-from src.core.errors import SkillNotFoundError
-from src.memory.skills import SkillReader
-from src.memory.skills import SkillRegistry
+from src_backend.core.config import Settings
+from src_backend.core.errors import SkillNotFoundError
+from src_backend.memory.skills import SkillReader
+from src_backend.memory.skills import SkillRegistry
 
 
 def make_settings(tmp_path: Path, skills_dir: Path | None = None) -> Settings:
     return Settings(
         project_root=tmp_path,
         dir_data=tmp_path,
+        dir_memory=tmp_path / "memory",
         dir_skills=skills_dir or tmp_path / "skills",
         dir_assets=tmp_path / "assets",
         ollama_url="",

@@ -5,9 +5,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from front_end.server import create_app
-from src.agent import AgentLoop
-from src.core.config import Settings
+from src_frontend.server import create_app
+from src_backend.agent import AgentLoop
+from src_backend.core.config import Settings
 from tests.test_agent_loop import ScriptedLLM, make_settings, seed_asset
 
 

@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from src.agent import AgentLoop
-from src.core.config import Settings
-from src.llm.adapters.codex import AgenticResult
+from src_backend.agent import AgentLoop
+from src_backend.core.config import Settings
+from src_backend.llm.adapters.codex import AgenticResult
 
 
 def make_settings(tmp_path: Path) -> Settings:
@@ -18,6 +18,7 @@ def make_settings(tmp_path: Path) -> Settings:
     return Settings(
         project_root=tmp_path,
         dir_data=data,
+        dir_memory=data / "memory",
         dir_skills=data / "memory" / "skills",
         dir_assets=data / "memory" / "assets",
         ollama_url="http://localhost:11434",
@@ -213,7 +214,7 @@ def test_malformed_decision_is_fed_back(tmp_path: Path) -> None:
 
 def test_empty_task_rejected(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
-    from src.core.errors import PMIntelligenceError
+    from src_backend.core.errors import BaseAppError
 
-    with pytest.raises(PMIntelligenceError):
+    with pytest.raises(BaseAppError):
         AgentLoop(settings=settings, llm_client=ScriptedLLM([]), emit=lambda _: None).run("   ")
