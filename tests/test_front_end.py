@@ -141,9 +141,14 @@ def test_workflows_and_runs_endpoints(tmp_path: Path) -> None:
     client = make_client(tmp_path, llm)
 
     workflows = client.get("/api/workflows").json()["workflows"]
-    assert any(w["name"] == "Arrears sweep" for w in workflows)
-    client.post("/api/workflows", json={"name": "My check", "task": "Check things."})
-    assert any(w["name"] == "My check" for w in client.get("/api/workflows").json()["workflows"])
+    arrears = next(w for w in workflows if w["name"] == "Arrears sweep")
+    assert arrears["type"] == "arrears_sweep"
+    assert "steps" in arrears and arrears["steps"]
+    assert "expected_outputs" in arrears and arrears["expected_outputs"]
+    client.post("/api/workflows", json={"name": "My check", "task": "Check things.", "type": "custom_check"})
+    custom = next(w for w in client.get("/api/workflows").json()["workflows"] if w["name"] == "My check")
+    assert custom["type"] == "custom_check"
+    assert custom["steps"]
 
     # A chat run produces a journal entry that the Runs view can read.
     client.post("/api/chat", json={"message": "general question"})

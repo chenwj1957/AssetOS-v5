@@ -56,6 +56,7 @@ class SettingsRequest(BaseModel):
 class WorkflowRequest(BaseModel):
     name: str
     task: str
+    type: str = "custom"
 
 
 class ApprovalRequest(BaseModel):
@@ -417,7 +418,7 @@ def create_app(settings: Settings | None = None, loop: AgentLoop | None = None) 
 
     @app.post("/api/workflows")
     def add_workflow(request: WorkflowRequest) -> JSONResponse:
-        workflows = workflow_store.add(request.name.strip(), request.task.strip())
+        workflows = workflow_store.add(request.name.strip(), request.task.strip(), request.type.strip() or "custom")
         return JSONResponse({"workflows": workflows})
 
     @app.get("/api/settings")

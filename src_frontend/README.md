@@ -19,8 +19,10 @@ python -m src_frontend.server          # http://localhost:8400
   ruled ledger; the answer and any DOCX artifacts (download chips) follow.
 - **Assets** — the vault: every asset with profile snippet, memory files
   (click to read), the facts table with STALE badges, and built artifacts.
-- **Workflows** — saved instruction presets (stored in `data/workflows.json`).
-  Run loads the text into the composer so you can edit before sending.
+- **Workflows** — typed workflow templates (stored in `data/workflows.json`)
+  with task text, expected outputs, recommended steps, required inputs, and
+  approval-sensitive actions. Run loads the text into the composer so you can
+  edit before sending.
 - **Runs** — the journal of every run, interactive or scheduled.
 
 The sidebar switch **Allow gated tools** controls the approval policy for

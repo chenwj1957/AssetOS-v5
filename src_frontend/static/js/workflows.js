@@ -16,7 +16,20 @@ export async function loadWorkflows() {
     const card = el("div", "wf-card");
     const body = el("div", "wf-body");
     body.appendChild(el("h3", "", workflow.name));
+    if (workflow.type) {
+      body.appendChild(el("small", "wf-type", workflow.type.replaceAll("_", " ")));
+    }
     body.appendChild(el("p", "", workflow.task));
+    if (Array.isArray(workflow.steps) && workflow.steps.length) {
+      const steps = el("ol", "wf-steps");
+      for (const step of workflow.steps) {
+        steps.appendChild(el("li", "", step));
+      }
+      body.appendChild(steps);
+    }
+    if (Array.isArray(workflow.expected_outputs) && workflow.expected_outputs.length) {
+      body.appendChild(el("small", "wf-outputs", `Outputs: ${workflow.expected_outputs.join(", ")}`));
+    }
     card.appendChild(body);
     const run = el("button", "wf-run", "Run");
     run.addEventListener("click", () => {
